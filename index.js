@@ -4,54 +4,6 @@ var io = require('socket.io')(http);
 var path = require('path');
 var natural = require('natural');
 var fs = require('fs');
-var classifier = new natural.BayesClassifier();
-
-classifier.addDocument('suck my dick', 'insult');
-classifier.addDocument('screw you','insult');
-classifier.addDocument('fuck you','insult');
-classifier.addDocument('fuck off','insult');
-classifier.addDocument('kiss my ass','insult');
-classifier.addDocument('you suck','insult');
-classifier.addDocument('you jackass','insult');
-classifier.addDocument('you asshole','insult');
-classifier.addDocument('you jerk','insult');
-classifier.addDocument('you dick','insult');
-classifier.addDocument('you douche','insult');
-classifier.addDocument('you douchebag','insult');
-
-
-classifier.addDocument('your mom', 'joke');
-/*
-natural.BayesClassifier.load('./insults.json', null, function(err, classifier) {
-        console.log(classifier.classify('fuck off'));
-});
-        */
-classifier.addDocument('hello, how are you', 'greeting');
-classifier.addDocument('hello', 'greeting');
-classifier.addDocument('how are you', 'greeting');
-classifier.addDocument('howdy', 'greeting');
-classifier.addDocument('hey there', 'greeting');
-classifier.addDocument('whats up', 'greeting');
-classifier.addDocument('hi', 'greeting');
-classifier.addDocument('greetings', 'greeting');
-classifier.addDocument('salutations', 'greeting');
-classifier.addDocument('hola', 'greeting');
-classifier.addDocument('waddup', 'greeting');
-classifier.addDocument('sup', 'greeting');
-classifier.addDocument('hows it hangin', 'greeting');
-classifier.addDocument('yo', 'greeting');
-classifier.addDocument('yoyoyo', 'greeting');
-classifier.addDocument('yoyo', 'greeting');
-classifier.addDocument('hey', 'greeting');
-classifier.addDocument('how are you', 'greeting');
-classifier.addDocument('what going on', 'greeting');
-
-classifier.addDocument('what doing', 'job');
-classifier.addDocument('what are you doing', 'job');
-classifier.addDocument('job', 'job');
-classifier.addDocument('what do you do', 'job');
-
-classifier.train();
 
 app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli.html'));
