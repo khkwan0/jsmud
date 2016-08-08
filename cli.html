@@ -110,7 +110,7 @@
                         });
                     } else {
                         if (!event.ctrlKey && !event.altKey) {
-                            if (/[a-zA-Z0-9]$/.test(event.key) || event.keyCode==32) {
+                            if (/[_\/a-zA-Z0-9]$/.test(event.key) || event.keyCode==32) {
                                 if (event.key != 'Shift') {
                                     $('#cli_input').append(event.key);
                                 }

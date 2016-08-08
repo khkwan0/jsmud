@@ -14,67 +14,92 @@ var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag',
 var room_list = {};
 
 var redis_client = redis.createClient();
-redis_client.select(3, function() {
-    redis_client.flushdb(function() {;
+    redis_client.select(3, function() {
+        redis_client.flushdb(function() {;
 
-io.on('connection', function(socket) {
-    var player = {
-        "name":0,
-        "gagged": 0,
-        "level": 1,
-        "ghost": 0,
-        "hp":100,
-        "wizard": 1,
-        "realm":"main",
-        "room_name":"outside_ted",
-        "location": "main/outside_ted"
-    }
+        io.on('connection', function(socket) {
+            var player = {
+                "name":0,
+                "gagged": false,
+                "level": 1,
+                "ghost": false,
+                "hp":100,
+                "wizard": 1,
+                "realm":"main",
+                "room_name":"outside_ted",
+                "location": "main/outside_ted",
+                "ninja_mode": false
+            }
 
-    var room = {
-        "name":"outside_ted",
-        "realm":"main",
-        "long":"You are standing outside of Ted's office on the fifth floor of the 9000 building.  It is a beautiful, clear day in Southern California.  The area is brightly lit by the white tiles and floor to ceiling windows.  Just south of you is the accounting area while just a few steps west will bring you in front of the executive shiiter.",
-        "short": "Outside of Ted's Office",
-        "owner": 0,
-        "exits": {'w':'hallway_exec_bathroom', 's':'account_area','enter':'teds_office'}
-    }
+            var room = {
+                "name":"outside_ted",
+                "realm":"main",
+                "long":"You are standing outside of Ted's office on the fifth floor of the 9000 building.  It is a beautiful, clear day in Southern California.  The area is brightly lit by the white tiles and floor to ceiling windows.  Just south of you is the accounting area while just a few steps west will bring you in front of the executive shiiter.",
+                "short": "Outside of Ted's Office",
+                "owner": 0,
+                "exits": {'w':'hallway_exec_bathroom', 's':'account_area','enter':'teds_office'}
+            }
 
-    var player_redis = redis.createClient();
-    player_redis.select(5, function() {
-        socket.on('adduser', function(name) {
-            player.name = name;
-            player_redis.get(player.name, function(err, data) {
-                if (data) {
-                    console.log('REDIS player HIT:' + data);
-                    player = JSON.parse(data);
-                    redis_client.get(player.location, function(err, data) {
+            var player_redis = redis.createClient();
+            player_redis.select(5, function() {
+                socket.on('adduser', function(name) {
+                    player.name = name;
+                    player_redis.get(player.name, function(err, data) {
                         if (data) {
-                            console.log('REDIS room HIT' + data);
-                            room = JSON.parse(data);
-                            initiate_socks(socket, player, room, player_redis);
+                            console.log('REDIS player HIT:' + data);
+                            player = JSON.parse(data);
+                            redis_client.get(player.location, function(err, data) {
+                                if (data) {
+                                    console.log('REDIS room HIT' + data);
+                                    room = JSON.parse(data);
+                                    initiate_socks(socket, player, room, player_redis);
 
-                            // update room who list
-                            if (typeof room.who !== 'undefined') {
-                                room.who[player.name] = player;
-                            } else {
-                                room.who = { [player.name]: player };
-                            }
-                            room_id = room.realm + '/' + room.name;
-                            console.log(room.who);
-                            redis_client.set(room_id, JSON.stringify(room), function() {
-                                enter_room(socket, room, player, player_redis, false, false);
-                            });
+                                    // update room who list
+                                    if (typeof room.who !== 'undefined') {
+                                        room.who[player.name] = player;
+                                    } else {
+                                        room.who = { [player.name]: player };
+                                    }
+                                    room_id = room.realm + '/' + room.name;
+                                    console.log(room.who);
+                                    redis_client.set(room_id, JSON.stringify(room), function() {
+                                        enter_room(socket, room, player, player_redis, false, false);
+                                    });
 
-                        } else {
-                            console.log('REDIS room MISS: ' + player.location);
-                            fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js', 'utf8', function(err, data) {
-                                if (err) {
-                                    console.log('could not load room: '+player.location);
                                 } else {
-                                    console.log(player.name+' connected');
-                                    room_id = player.realm + '/' + player.name;
-                                    eval(data);
-                                    redis_client.set(room_id, JSON.stringify(room));
+                                    console.log('REDIS room MISS: ' + player.location);
+                                    fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js', 'utf8', function(err, data) {
+                                        if (err) {
+                                            console.log('could not load room: '+player.location);
+                                        } else {
+                                            console.log(player.name+' connected');
+                                            room_id = player.realm + '/' + player.name;
+                                            eval(data);
+                                            redis_client.set(room_id, JSON.stringify(room));
+                                            initiate_socks(socket, player, room, player_redis);
+
+                                            // update room who list
+                                            if (typeof room.who !== 'undefined') {
+                                                room.who[player.name] = player;
+                                            } else {
+                                                room.who = { [player.name]: player };
+                                            }
+                                            room_id = room.realm + '/' + room.name;
+                                            redis_client.set(room_id, JSON.stringify(room), function() {
+                                                enter_room(socket, room, player, player_redis, true, false);
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                        } else {
+                            console.log('REDIS player MISS: ' + player.name);
+                            room_id = room.realm + '/' + room.name;
+                            redis_client.get(room_id, function(err, data) {
+                                if (data) {
+                                    console.log('REDIS room HIT: ' + data);
+                                    room = JSON.parse(data);
+                                    console.log(room.name);
                                     initiate_socks(socket, player, room, player_redis);
 
                                     // update room who list
@@ -87,62 +112,38 @@ io.on('connection', function(socket) {
                                     redis_client.set(room_id, JSON.stringify(room), function() {
                                         enter_room(socket, room, player, player_redis, true, false);
                                     });
-                                }
-                            });
-                        }
-                    });
-                } else {
-                    console.log('REDIS player MISS: ' + player.name);
-                    room_id = room.realm + '/' + room.name;
-                    redis_client.get(room_id, function(err, data) {
-                        if (data) {
-                            console.log('REDIS room HIT: ' + data);
-                            room = JSON.parse(data);
-                            console.log(room.name);
-                            initiate_socks(socket, player, room, player_redis);
-
-                            // update room who list
-                            if (typeof room.who !== 'undefined') {
-                                room.who[player.name] = player;
-                            } else {
-                                room.who = { [player.name]: player };
-                            }
-                            room_id = room.realm + '/' + room.name;
-                            redis_client.set(room_id, JSON.stringify(room), function() {
-                                enter_room(socket, room, player, player_redis, true, false);
-                            });
-                        } else {
-                            console.log('REDIS room MISS: ' + room_id);
-                            fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8', function(err, data) {
-                                if (err) {
-                                    console.log('could not load room: '+player.location +' : '+err);
                                 } else {
-                                    console.log(player.name+' connected');
-                                    room_id = player.realm + '/' + player.name;
-                                    eval(data);
-                                    redis_client.set(room_id, JSON.stringify(room));
-                                    initiate_socks(socket, player, room, player_redis);
+                                    console.log('REDIS room MISS: ' + room_id);
+                                    fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8', function(err, data) {
+                                        if (err) {
+                                            console.log('could not load room: '+player.location +' : '+err);
+                                        } else {
+                                            console.log(player.name+' connected');
+                                            room_id = player.realm + '/' + player.name;
+                                            eval(data);
+                                            redis_client.set(room_id, JSON.stringify(room));
+                                            initiate_socks(socket, player, room, player_redis);
 
-                                    // update room who list
-                                    if (typeof room.who !== 'undefined') {
-                                        room.who[player.name] = player;
-                                    } else {
-                                        room.who = { [player.name]: player };
-                                    }
-                                    room_id = room.realm + '/' + room.name;
-                                    redis_client.set(room_id, JSON.stringify(room), function() {
-                                        enter_room(socket, room, player, player_redis, true, false);
+                                            // update room who list
+                                            if (typeof room.who !== 'undefined') {
+                                                room.who[player.name] = player;
+                                            } else {
+                                                room.who = { [player.name]: player };
+                                            }
+                                            room_id = room.realm + '/' + room.name;
+                                            redis_client.set(room_id, JSON.stringify(room), function() {
+                                                enter_room(socket, room, player, player_redis, true, false);
+                                            });
+                                        }
                                     });
                                 }
                             });
                         }
                     });
-                }
+                });
             });
         });
     });
-});
-});
 });
 
 function initiate_socks(socket,player,room, player_redis) {
@@ -150,6 +151,11 @@ function initiate_socks(socket,player,room, player_redis) {
         room_id = room.realm + '/' + room.name;
         socket.broadcast.to(room_id).emit('update', player.name + ' disconnected.');
         delete room.who[player.name];
+        if (room.realm === 'workshop') {
+            player_redis.set(room_id, JSON.stringify(room));
+        } else {
+            redis_client.set(room_id, JSON.stringify(room));
+        }
     });
     socket.on('cmd', function(msg) {
         if (player.name) {
@@ -187,9 +193,9 @@ function initiate_socks(socket,player,room, player_redis) {
                                 if (data) {
                                     console.log('REDIS go room HIT: '+data);
                                     room = JSON.parse(data);
-                                    update_room_who(redis_client, room, player, old_room);
+                                    update_room_who(redis_client, room, player, old_room,player_redis);
                                     enter_room(socket, room, player, player_redis, true, false);
-                                    leave_room(socket, old_room, player); 
+                                    leave_room(socket, old_room, player,false); 
                                 } else {
                                     console.log('REDIS go room MISS: '+new_room_id);
                                     fs.readFile('./realms/'+room.realm+'/rooms/'+room.exits[direction]+'.js', 'utf8', function(err, data) {
@@ -198,9 +204,9 @@ function initiate_socks(socket,player,room, player_redis) {
                                         } else {
                                             eval(data);
                                             redis_client.set(new_room_id, JSON.stringify(room));
-                                            update_room_who(redis_client, room, player, old_room);
+                                            update_room_who(redis_client, room, player, old_room,player_redis);
                                             enter_room(socket, room, player, player_redis, true, false);
-                                            leave_room(socket, old_room, player);
+                                            leave_room(socket, old_room, player, false);
                                         }
                                     });
                                 }
@@ -213,7 +219,11 @@ function initiate_socks(socket,player,room, player_redis) {
                 }
                 if (command === 'look') {
                     room_id = room.realm + '/' + room.name;
-                    redis_client.get(room_id, function(err, data) {
+                    rclient = redis_client;
+                    if (room.realm == 'workshop') {
+                        rclient = player_redis;
+                    }
+                    rclient.get(room_id, function(err, data) {
                         if (err) {
                         } else {
                             room = JSON.parse(data);
@@ -237,6 +247,78 @@ function initiate_socks(socket,player,room, player_redis) {
                         }
                     });
                 }
+                if (command === 'goto') {
+                    if (tokens[0] === 'home') {
+                        destination = 'workshop/'+player.name+'s_workshop';  // workshops are persisten, jus tlike players so use player_client (persistent redis db)
+                        console.log(player.name + ' GOTO ' + destination);
+                        player_redis.get(destination, function(err, data) {
+                            old_room = room;
+                            if (data) {
+                                console.log('REDIS goto HIT: '+data);
+                                room = JSON.parse(data);
+                                update_room_who(redis_client, room, player, old_room,player_redis);
+                                enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                leave_room(socket, old_room, player, true); 
+                            } else {
+                                console.log('REDIS goto MISS: ' + destination);
+                                fs.readFile('./realms/workshop/rooms/'+player.name+'s_workshop.js','utf8', function(err, data) {
+                                    if (err) {
+                                        console.log('FS goto load error:' + err);
+                                    } else {
+                                        if (data) {
+                                            eval(data);
+                                            player_redis.set(destination, JSON.stringify(room));
+                                            update_room_who(redis_client, room, player, old_room,player_redis);
+                                            enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                            leave_room(socket, old_room, player, true); 
+                                        } 
+                                    }
+                                });
+                            }
+                        });
+                    } else {
+                        if (typeof tokens[0] !== 'undefined') {
+                            destination = tokens[0];
+                            console.log(player.name + ' GOTO ' + destination);
+                            redis_client.get(destination, function(err, data) {
+                                old_room = room;
+                                if (data) {
+                                    console.log('REDIS goto HIT: '+data);
+                                    room = JSON.parse(data);
+                                    update_room_who(redis_client, room, player, old_room, player_redis);
+                                    enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                    leave_room(socket, old_room, player, true); 
+                                } else {
+                                    parts = destination.split('/',2);
+                                    console.log('REDIS goto MISS '+ destination + parts.length);
+                                    if (parts.length>1) {
+                                        realm = parts[0];
+                                        dest_room = parts[1];
+                                        console.log('REDIS goto MISS: ' + realm + '/' + dest_room);
+                                        fs.readFile('./realms/'+realm+'/rooms/'+dest_room+'.js','utf8', function(err, data) {
+                                            if (err) {
+                                                console.log('FS goto load error, maybe a player target? '+ err);
+                                            } else {
+                                                if (data) {
+                                                    eval(data);
+                                                    if (realm == 'workshop') {
+                                                        player_redis.set(destination, JSON.stringify(room));
+                                                    } else {
+                                                        redis_client.set(destination, JSON.stringify(room));
+                                                    }
+                                                    update_room_who(redis_client, room, player, old_room, player_redis);
+                                                    enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                                    leave_room(socket, old_room, player, true); 
+
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
             } else {
                 console.log('invalid command');
             }
@@ -259,8 +341,14 @@ function show_others_in_room(socket, room) {
     }
 }
 
-function leave_room(socket, old_room, player) {
-    socket.broadcast.to(old_room.realm+'/'+old_room.name).emit('update', player.name + ' went '+ direction);
+function leave_room(socket, old_room, player, is_goto) {
+    if (!player.ninja_mode) {
+        if (is_goto) {
+            socket.broadcast.to(old_room.realm+'/'+old_room.name).emit('update', player.name + ' disappears in a cloud of smoke.');
+        } else {
+            socket.broadcast.to(old_room.realm+'/'+old_room.name).emit('update', player.name + ' went '+ direction);
+        }
+    }
     socket.leave(old_room.realm+'/'+old_room.name);
 }
 
@@ -268,7 +356,9 @@ function enter_room(socket, room, player, redis_client, update_redis,silent) {
     room_id = room.realm+'/'+room.name;
     console.log('enter_room: '+room_id);
     socket.join(room_id);
-    socket.broadcast.to(room_id).emit('update', player.name + ' has arrived.');
+    if (!silent) {
+        socket.broadcast.to(room_id).emit('update', player.name + ' has arrived.');
+    }
     socket.emit('update', room.short);
     socket.emit('update', room.long);
     show_others_in_room(socket, room);
@@ -287,7 +377,7 @@ function update_player_location(room, player) {
     return player;
 }
 
-function update_room_who(redis_client, room, player, old_room) {
+function update_room_who(redis_client, room, player, old_room,player_redis) {
     if (typeof room.who !== 'undefined') {
         room.who[player.name] = player;
     } else {
@@ -295,14 +385,18 @@ function update_room_who(redis_client, room, player, old_room) {
     }
     room_id = room.realm + '/' + room.name;
     console.log('up[date_room '+room_id);
-    redis_client.set(room_id, JSON.stringify(room));
+    if (room.realm == 'workshop') {
+        player_redis.set(room_id, JSON.stringify(room));
+    } else {
+        redis_client.set(room_id, JSON.stringify(room));
+    }
     if (old_room) {
         room_id = old_room.realm +'/' + old_room.name;
         try {
             delete old_room.who[player.name];
             redis_client.set(room_id, JSON.stringify(old_room));
         } catch(e) {
-            console.log('error deleting '+player_name+' from '+room_id);
+            console.log('error deleting '+player.name+' from '+room_id);
         }
     }
 }
