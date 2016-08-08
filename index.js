@@ -10,7 +10,7 @@ app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto'];
+var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow'];
 var room_list = {};
 
 var redis_client = redis.createClient();
@@ -24,7 +24,7 @@ var redis_client = redis.createClient();
                 "level": 1,
                 "ghost": false,
                 "hp":100,
-                "wizard": 1,
+                "wizard": false,
                 "realm":"main",
                 "room_name":"outside_ted",
                 "location": "main/outside_ted",
@@ -63,7 +63,7 @@ var redis_client = redis.createClient();
                                     room_id = room.realm + '/' + room.name;
                                     console.log(room.who);
                                     redis_client.set(room_id, JSON.stringify(room), function() {
-                                        enter_room(socket, room, player, player_redis, false, false);
+                                        enter_room(socket, room, player, player_redis, false);
                                     });
 
                                 } else {
@@ -86,7 +86,7 @@ var redis_client = redis.createClient();
                                             }
                                             room_id = room.realm + '/' + room.name;
                                             redis_client.set(room_id, JSON.stringify(room), function() {
-                                                enter_room(socket, room, player, player_redis, true, false);
+                                                enter_room(socket, room, player, player_redis, true);
                                             });
                                         }
                                     });
@@ -110,7 +110,7 @@ var redis_client = redis.createClient();
                                     }
                                     room_id = room.realm + '/' + room.name;
                                     redis_client.set(room_id, JSON.stringify(room), function() {
-                                        enter_room(socket, room, player, player_redis, true, false);
+                                        enter_room(socket, room, player, player_redis, true);
                                     });
                                 } else {
                                     console.log('REDIS room MISS: ' + room_id);
@@ -132,7 +132,7 @@ var redis_client = redis.createClient();
                                             }
                                             room_id = room.realm + '/' + room.name;
                                             redis_client.set(room_id, JSON.stringify(room), function() {
-                                                enter_room(socket, room, player, player_redis, true, false);
+                                                enter_room(socket, room, player, player_redis, true);
                                             });
                                         }
                                     });
@@ -170,9 +170,29 @@ function initiate_socks(socket,player,room, player_redis) {
                         console.log(player.name + ' said ' + msg);
                         room_id = room.realm + '/' + room.name;
                         socket.emit('update', 'You said ' + msg);
-                        socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
+                        if (player.ninja_mode) {
+                            socket.broadcast.to(room_id).emit('update', 'A mysterious voice said ' + msg);
+                        } else {
+                            socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
+                        }
                     }
                 }
+                if (command === 'lol') {
+                    if (!player.gagged) {
+                        room_id = room.realm + '/' + room.name;
+                        socket.emit('update','You guffaw out loud.');
+                        if (player.ninja_mode) {
+                            socket.broadcast.to(room_id).emit('update', 'You hear a mysterious laughter nearby.');
+                        } else {
+                            socket.broadcast.to(room_id).emit('update', player.name + ' laughs.');
+                        }
+                    }
+                }
+                if (command === 'bow') {
+                    room_id = room.realm + '/' + room.name;
+                    socket.emit('update','CLAP! CLAP! CLAP!');
+                    socket.broadcast.to(room_id).emit('update', player.name + ' takes a bow.');
+                } 
                 if (command === 'emote') {
                     if (!player.gagged) {
                         msg = tokens.join(' ');
@@ -194,7 +214,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                     console.log('REDIS go room HIT: '+data);
                                     room = JSON.parse(data);
                                     update_room_who(redis_client, room, player, old_room,player_redis);
-                                    enter_room(socket, room, player, player_redis, true, false);
+                                    enter_room(socket, room, player, player_redis, true);
                                     leave_room(socket, old_room, player,false); 
                                 } else {
                                     console.log('REDIS go room MISS: '+new_room_id);
@@ -205,7 +225,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                             eval(data);
                                             redis_client.set(new_room_id, JSON.stringify(room));
                                             update_room_who(redis_client, room, player, old_room,player_redis);
-                                            enter_room(socket, room, player, player_redis, true, false);
+                                            enter_room(socket, room, player, player_redis, true);
                                             leave_room(socket, old_room, player, false);
                                         }
                                     });
@@ -217,7 +237,7 @@ function initiate_socks(socket,player,room, player_redis) {
                     } catch(e) {
                     }
                 }
-                if (command === 'look') {
+                if (command === 'look' || command === 'l') {
                     room_id = room.realm + '/' + room.name;
                     rclient = redis_client;
                     if (room.realm == 'workshop') {
@@ -225,9 +245,10 @@ function initiate_socks(socket,player,room, player_redis) {
                     }
                     rclient.get(room_id, function(err, data) {
                         if (err) {
+                            console.log('Command LOOK get room from redis error: '+err);
                         } else {
                             room = JSON.parse(data);
-
+/*
                             in_room = '';
                             count = 0;
                             for (var key in room.who) {
@@ -235,15 +256,22 @@ function initiate_socks(socket,player,room, player_redis) {
                                 count++;
                             }
                             in_room = in_room.slice(0,-1);  // rmeove last comma
+                            */
                             socket.emit('update', command);
                             socket.emit('update', room.short);
                             socket.emit('update', room.long);
+                            show_others_in_room(socket, room, player);
+                            /*
                             if (count == 1) {
                                 socket.emit('update', 'You are the only one here');
                             } else {
                                 socket.emit('update', 'There are '+count+' players here: '+in_room);
                             }
+                            */
                             show_exits(socket, room);
+                            if (player.ninja_mode) {
+                                socket.emit('update', 'You are in ninja mode!  "vis" to disable');
+                            }
                         }
                     });
                 }
@@ -257,7 +285,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                 console.log('REDIS goto HIT: '+data);
                                 room = JSON.parse(data);
                                 update_room_who(redis_client, room, player, old_room,player_redis);
-                                enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                enter_room(socket, room, player, player_redis, true);
                                 leave_room(socket, old_room, player, true); 
                             } else {
                                 console.log('REDIS goto MISS: ' + destination);
@@ -269,7 +297,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                             eval(data);
                                             player_redis.set(destination, JSON.stringify(room));
                                             update_room_who(redis_client, room, player, old_room,player_redis);
-                                            enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                            enter_room(socket, room, player, player_redis, true);
                                             leave_room(socket, old_room, player, true); 
                                         } 
                                     }
@@ -286,7 +314,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                     console.log('REDIS goto HIT: '+data);
                                     room = JSON.parse(data);
                                     update_room_who(redis_client, room, player, old_room, player_redis);
-                                    enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                    enter_room(socket, room, player, player_redis, true);
                                     leave_room(socket, old_room, player, true); 
                                 } else {
                                     parts = destination.split('/',2);
@@ -307,7 +335,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                                         redis_client.set(destination, JSON.stringify(room));
                                                     }
                                                     update_room_who(redis_client, room, player, old_room, player_redis);
-                                                    enter_room(socket, room, player, player_redis, true, player.ninja_mode);
+                                                    enter_room(socket, room, player, player_redis, true);
                                                     leave_room(socket, old_room, player, true); 
 
                                                 }
@@ -319,6 +347,36 @@ function initiate_socks(socket,player,room, player_redis) {
                         }
                     }
                 }
+                if (command === 'invis')  {
+                    if (!player.ninja_mode) {
+                        socket.emit('update','You suddenly vanish.  Anyone watching is unsure of their eyes now.');
+                    }
+                    player.ninja_mode = true;
+                    room_id = room.realm + '/' + room.name;
+                    socket.broadcast.to(room_id).emit('update', player.name + ' disappears in front of your eyes!');
+                    player_redis.set(player.name, JSON.stringify(player));
+                    room.who[player.name].ninja_mode = true;
+                    if (room.realm == 'workshop') {
+                        player_redis.set(room_id, JSON.stringify(room));
+                    } else {
+                        redis_client.set(room_id, JSON.stringify(room));
+                    }
+                }
+                if (command === 'vis') {
+                    if (player.ninja_mode) {
+                        socket.emit('update','You suddenly appear in the room.  Everyone can see you!');
+                    }
+                    player.ninja_mode = false;
+                    room_id = room.realm + '/' + room.name;
+                    socket.broadcast.to(room_id).emit('update', player.name + ' suddenly appears!');
+                    player_redis.set(player.name, JSON.stringify(player));
+                    room.who[player.name].ninja_mode = false;
+                    if (room.realm == 'workshop') {
+                        player_redis.set(room_id, JSON.stringify(room));
+                    } else {
+                        redis_client.set(room_id, JSON.stringify(room));
+                    }
+                }
             } else {
                 console.log('invalid command');
             }
@@ -326,18 +384,33 @@ function initiate_socks(socket,player,room, player_redis) {
     });
 };
 
-function show_others_in_room(socket, room) {
+function show_others_in_room(socket, room, player) {
     in_room = '';
     count = 0;
+    invis = 0;
     for (var key in room.who) {
-        in_room += key+',';
-        count++;
+        if (room.who[key].ninja_mode && player.wizard) {
+            in_room += key+' (invisible),';
+            invis++;
+        } else if (!room.who[key].ninja_mode) {
+            in_room += key+',';
+            count++;
+        }
     }
     in_room = in_room.slice(0,-1);  // rmeove last comma
-    if (count == 1) {
-        socket.emit('update', 'You are the only one here');
+    if (player.wizard) {
+        total_count = count + invis;
+        if (total_count == 1) {
+            socket.emit('update', 'You are the only one here');
+        } else {
+            socket.emit('update', 'There are '+total_count+' players here: '+in_room);
+        }
     } else {
-        socket.emit('update', 'There are '+count+' players here: '+in_room);
+    if (count == 1) {
+            socket.emit('update', 'You are the only one here');
+        } else {
+            socket.emit('update', 'There are '+count+' players here: '+in_room);
+        }
     }
 }
 
@@ -352,17 +425,20 @@ function leave_room(socket, old_room, player, is_goto) {
     socket.leave(old_room.realm+'/'+old_room.name);
 }
 
-function enter_room(socket, room, player, redis_client, update_redis,silent) {
+function enter_room(socket, room, player, redis_client, update_redis) {
     room_id = room.realm+'/'+room.name;
     console.log('enter_room: '+room_id);
     socket.join(room_id);
-    if (!silent) {
+    if (!player.ninja_mode) {
         socket.broadcast.to(room_id).emit('update', player.name + ' has arrived.');
     }
     socket.emit('update', room.short);
     socket.emit('update', room.long);
-    show_others_in_room(socket, room);
+    show_others_in_room(socket, room, player);
     show_exits(socket, room);
+    if (player.ninja_mode) {
+        socket.emit('update', 'You are in ninja mode!  "vis" to disable');
+    }
     if (update_redis) {
         console.log('Update player location');
         player = update_player_location(room, player);
