@@ -1,3 +1,4 @@
+var redis = require('redis');
 var app = require('express')();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
@@ -9,7 +10,7 @@ app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote'];
+var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout'];
 var room_list = {};
 
 
@@ -19,7 +20,10 @@ io.on('connection', function(socket) {
         "gagged": 0,
         "level": 1,
         "ghost": 0,
-        "hp":100
+        "hp":100,
+        "wizard": 1,
+        "location": "main/outside_ted"
+
     }
     var room = {
         "name":"outside_ted",
@@ -28,34 +32,41 @@ io.on('connection', function(socket) {
         "short": "Outside of Ted's Office",
         "exits": {'w':'hallway_exec_bathroom', 's':'account_area','enter':'teds_office'}
     }
+
+    var redis_client = redis.createClient();
     socket.on('adduser', function(name) {
         player.name = name;
-        socket.join(room.name);
-        socket.broadcast.to(room.name).emit('update', player.name + ' has arrived.');
-        socket.emit('update', room.short);
-        socket.emit('update', room.long);
-        show_exits(socket, room);
-        if (typeof room_list[room.realm] !== 'undefined') {
-            if (typeof room_list[room.realm][room.name] !== 'undefined') {
-                room_list[room.realm][room.name] = { [name]: 1};
+        redis_client.get(player.name, function(err, data) {
+            if (data) {
+                console.log('REDIS player HIT:' + data);
+                player = JSON.parse(data);
+                redis_client.get(player.location, function(err, data) {
+                    if (data) {
+                        console.log(player.name+' connected');
+                        room = JSON.parse(data);
+                        initiate_socks(socket, player, room, redis_client);
+                        enter_room(socket, room, player, redis_client, false, false);
+                    } else {
+                        fs.readFile('./rooms/'+player.location+'.js', 'utf8', function(err, data) {
+                            if (err) {
+                                console.log('could not load room: '+player.location);
+                            } else {
+                                console.log(player.name+' connected');
+                                eval(data);
+                                initiate_socks(socket, player, room, redis_client);
+                                enter_room(socket, room, player, redis_client, false, false);
+                            }
+                        });
+                    }
+                });
             } else {
-                room_list[room.realm] = {
-                    [room.name]: {
-                        [name]: 1
-                    }
-                }
+                console.log('REDIS player MISS: ' + player.name);
             }
-        } else {
-            room_list = {
-                [room.realm]: {
-                    [room.name]: {
-                        [name]: 1
-                    }
-                }
-            };
-        }
-        console.log(room_list);
+        });
     });
+});
+
+function initiate_socks(socket,player,room, redis_client) {
     socket.on('cmd', function(msg) {
         if (player.name) {
             console.log(msg);
@@ -67,8 +78,9 @@ io.on('connection', function(socket) {
                     if (!player.gagged) {
                         msg = tokens.join(' ');
                         console.log(player.name + ' said ' + msg);
+                        room_id = room.realm + '/' + room.name;
                         socket.emit('update', 'You said ' + msg);
-                        socket.broadcast.to(room.name).emit('update', player.name + ' said ' + msg);
+                        socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
                     }
                 }
                 if (command === 'emote') {
@@ -76,28 +88,39 @@ io.on('connection', function(socket) {
                         msg = tokens.join(' ');
                         console.log(player.name + ' ' + msg);
                         socket.emit('update', 'You ' + msg);
-                        socket.broadcast.to(room.name).emit('update', player.name + ' ' + msg);
+                        room_id = room.realm + '/' + room.name;
+                        socket.broadcast.to(room_id).emit('update', player.name + ' ' + msg);
                     }
                 }
                 if (command === 'go') {
                     try {
                         direction = tokens[0];
-                        console.log(command +' '+direction);
                         if (direction in room.exits) {
-                            console.log(room.exits[direction]);
-                        } else {
-                        socket.emit('update','You cannot go that way.');
-                        }
-                        realm = "main";
-                        fs.readFile('./rooms/'+realm+'/'+room.exits[direction]+'.js', 'utf8',function(err, data) {
+                            new_room_id = room.realm+'/'+room.exits[direction];
+                            console.log('go exit: '+new_room_id);
                             old_room = room;
-                            if (err) {
-                                console.log('room load error - realm='+realm+', file='+room.exits[direction]);
-                            } else {
-                                eval(data);
-                                enter_room(socket, room, player, old_room);
-                            }
-                        });
+                            redis_client.get(new_room_id, function(err, data) {
+                                if (data) {
+                                    console.log('REDIS go room HIT: '+data);
+                                    room = JSON.parse(data);
+                                    enter_room(socket, room, player, redis_client, true, false);
+                                    leave_room(socket, old_room, player); 
+                                } else {
+                                    fs.readFile('./rooms/'+new_room_id+'.js', 'utf8', function(err, data) {
+                                        if (err) {
+                                            console.log('room load error - '+new_room_id+'.js');
+                                        } else {
+                                            redis_client.set(new_room_id, data);
+                                            eval(data);
+                                            enter_room(socket, room, player, redis_client, true, false);
+                                            leave_room(socket, old_room, player);
+                                        }
+                                    });
+                                }
+                            });
+                        } else {
+                            socket.emit('update','You cannot go that way.');
+                        }
                     } catch(e) {
                     }
                 }
@@ -108,12 +131,14 @@ io.on('connection', function(socket) {
                         in_room += key+',';
                         count++;
                     }
+                    in_room = in_room.slice(0,-1);  // rmeove last comma
+                    socket.emit('update', command);
                     socket.emit('update', room.short);
                     socket.emit('update', room.long);
                     if (count == 1) {
                         socket.emit('update', 'You are the only one here');
                     } else {
-                        socket.emit('update', 'There are '+count+' otheres here: '+in_room);
+                        socket.emit('update', 'There are '+count+' players here: '+in_room);
                     }
                     show_exits(socket, room);
                 }
@@ -122,18 +147,48 @@ io.on('connection', function(socket) {
             }
         }
     });
-    console.log('a user connected');
-});
+};
 
-function enter_room(socket, room, player,old_room) {
-    socket.broadcast.to(old_room.name).emit('update', player.name + ' went '+ direction);
-    socket.leave(old_room.name);
-    socket.join(room.name);
-    socket.broadcast.to(room.name).emit('update', player.name + ' has arrived.');
+function show_others_in_room(socket, room) {
+    in_room = '';
+    count = 0;
+    for (var key in room_list[room.realm][room.name]) {
+        in_room += key+',';
+        count++;
+    }
+    in_room = in_room.slice(0,-1);  // rmeove last comma
+    if (count == 1) {
+        socket.emit('update', 'You are the only one here');
+    } else {
+        socket.emit('update', 'There are '+count+' players here: '+in_room);
+    }
+}
+
+function leave_room(socket, old_room, player) {
+    socket.broadcast.to(old_room.realm+'/'+old_room.name).emit('update', player.name + ' went '+ direction);
+    socket.leave(old_room.realm+'/'+old_room.name);
+}
+
+function enter_room(socket, room, player, redis_client, update_redis,silent) {
+    room_id = room.realm+'/'+room.name;
+    update_room_list(room, player, null);
+    console.log('enter_room: '+room_id);
+    socket.join(room_id);
+    socket.broadcast.to(room_id).emit('update', player.name + ' has arrived.');
     socket.emit('update', room.short);
     socket.emit('update', room.long);
+    show_others_in_room(socket, room);
     show_exits(socket, room);
-    update_room_list(room, player, old_room);
+    if (update_redis) {
+        console.log('Update player location');
+        player = update_player_location(room, player);
+        redis_client.set(player.name, JSON.stringify(player));
+    }
+}
+
+function update_player_location(room, player) {
+    player.location = room.realm+'/'+room.name;
+    return player;
 }
 
 function update_room_list(room, player, old_room) {
@@ -161,9 +216,11 @@ function update_room_list(room, player, old_room) {
         console.log('key='+ keys);
     }
     try {
-        console.log('to_delete: '+ old_room.realm+','+old_room.name+','+player.name);
-        console.log('to delete: '+room_list[old_room.realm][old_room.name][player.name]);
-        delete room_list[old_room.realm][old_room.name][player.name];
+        if (old_room) {
+            console.log('to_delete: '+ old_room.realm+','+old_room.name+','+player.name);
+            console.log('to delete: '+room_list[old_room.realm][old_room.name][player.name]);
+            delete room_list[old_room.realm][old_room.name][player.name];
+        }
     } catch(e) {
         console.log('could not delete from room list');
     }
@@ -174,6 +231,7 @@ function show_exits(socket, room) {
     for (var key in room.exits) {
         exits += key+',';
     }
+    exits = exits.slice(0,-1);  // remove last comma
     socket.emit('update', 'You can go: ' + exits);
 }
 
