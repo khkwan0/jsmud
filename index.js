@@ -4,14 +4,15 @@ var http = require('http').Server(app);
 var io = require('socket.io')(http);
 var path = require('path');
 var natural = require('natural');
+var uuid = require('uuid');
 var fs = require('fs');
 
 app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow'];
-var room_list = {};
+var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow','who'];
+var player_list = {};
 
 var redis_client = redis.createClient();
     redis_client.select(3, function() {
@@ -19,6 +20,7 @@ var redis_client = redis.createClient();
 
         io.on('connection', function(socket) {
             var player = {
+                "id":null,
                 "name":0,
                 "gagged": false,
                 "level": 1,
@@ -48,6 +50,11 @@ var redis_client = redis.createClient();
                         if (data) {
                             console.log('REDIS player HIT:' + data);
                             player = JSON.parse(data);
+                            if (!player.id) {
+                                player.id = uuid.v4();
+                                player_redis.set(player.name, JSON.stringify(player));
+                                add_player_to_list(player);
+                            }
                             redis_client.get(player.location, function(err, data) {
                                 if (data) {
                                     console.log('REDIS room HIT' + data);
@@ -94,7 +101,11 @@ var redis_client = redis.createClient();
                             });
                         } else {
                             console.log('REDIS player MISS: ' + player.name);
+                            // new user
                             room_id = room.realm + '/' + room.name;
+                            player.id = uuid.v4();
+                            player_redis.set(player.name, JSON.stringify(player));
+                            add_player_to_list(player);
                             redis_client.get(room_id, function(err, data) {
                                 if (data) {
                                     console.log('REDIS room HIT: ' + data);
@@ -151,6 +162,7 @@ function initiate_socks(socket,player,room, player_redis) {
         room_id = room.realm + '/' + room.name;
         socket.broadcast.to(room_id).emit('update', player.name + ' disconnected.');
         delete room.who[player.name];
+        remove_player_from_list(player);
         if (room.realm === 'workshop') {
             player_redis.set(room_id, JSON.stringify(room));
         } else {
@@ -377,12 +389,59 @@ function initiate_socks(socket,player,room, player_redis) {
                         redis_client.set(room_id, JSON.stringify(room));
                     }
                 }
+                if (command === 'who') {
+                    plist = get_player_list(player);
+                    socket.emit('update',plist.p_list);
+                    socket.emit('update',plist.total_count + ' players online.');
+                }
             } else {
                 console.log('invalid command');
             }
         }
     });
 };
+
+function get_player_list(player) {
+    count = 0;
+    invis = 0;
+    var dat = {};
+    dat.p_list = '<br />';
+    dat.total_count = 0;
+    for (var key in player_list) {
+        some_player = player_list[key];
+        if (some_player.ninja_mode) {
+            invis++;
+            if (player.wizard) {
+                dat.p_list += some_player.name + ' (level: ' + some_player.level + ')' + ' ' + some_player.location + ' (invis)<br />';
+            }
+        } else {
+            count++;
+            if (player.wizard) {
+                dat.p_list += some_player.name + ' (level: ' + some_player.level + ')' + ' ' + some_player.location+ '<br />';
+            } else {
+                dat.p_list += some_player.name+'<br />';
+            }
+        }
+    }
+    if (player.wizard) {
+        dat.total_count = invis + count;
+    } else {
+        dat.total_count = count;
+    }
+    return dat;
+}
+
+function add_player_to_list(player) {
+    player_list[player.id] = player;
+}
+
+function remove_player_from_list(player) {
+    try {
+        delete player_list[player.id];
+    } catch(e) {
+        console.log('remove player error: '+e);
+    }
+}
 
 function show_others_in_room(socket, room, player) {
     in_room = '';
@@ -444,6 +503,7 @@ function enter_room(socket, room, player, redis_client, update_redis) {
         player = update_player_location(room, player);
         redis_client.set(player.name, JSON.stringify(player));
     }
+    player_list[player.id] = player;
 }
 
 function update_player_location(room, player) {
