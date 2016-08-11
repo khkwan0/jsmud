@@ -35,6 +35,9 @@ var valid_commands = {
     ,'inv':'Another alias for inventory'
     ,'drop':'drop [item name]: drop an item into the room'
     ,'get':'get [item name]: pick up an item in the room (if possible) and put it into your inventory'
+    ,'clap':'Give a round of applause'
+    ,'wizard':'(Wizard only) wizard [target player]: Grant a mortal the gift of godliness.'
+    ,'demote':'(Wizard only) demote [target player]: Remove wizard status immediately.'
     ,'help':'This menu'
 };
 var player_list = {};
@@ -272,8 +275,30 @@ function initiate_socks(socket,player,room, player_redis) {
                 }
                 if (command === 'bow') {
                     room_id = room.realm + '/' + room.name;
+                    socket.emit('update','You take a deep bow.');
+                        socket.emit('update','Noone sees you do that.');
+                    if (player.ninja_mode) {
+                    } else {
+                        socket.broadcast.to(room_id).emit('update', player.name + ' takes a bow.');
+                    }
+                } 
+                if (command === 'clap') {
+                    room_id = room.realm + '/' + room.name;
                     socket.emit('update','CLAP! CLAP! CLAP!');
-                    socket.broadcast.to(room_id).emit('update', player.name + ' takes a bow.');
+                    if (player.ninja_mode) {
+                        socket.broadcast.to(room_id).emit('update', 'You hear a round of applause form seeemingly nowhere.');
+                    } else {
+                        socket.broadcast.to(room_id).emit('update', player.name + ' gives a round of applause');
+                    }
+                } 
+                if (command === 'wave') {
+                    room_id = room.realm + '/' + room.name;
+                    socket.emit('update','You wave your hand.');
+                    if (player.ninja_mode) {
+                        socket.emit('update','Noone sees you do that.');
+                    } else {
+                        socket.broadcast.to(room_id).emit('update', player.name + ' waves their hand!');
+                    }
                 } 
                 if (command === 'emote') {
                     if (!player.gagged) {
@@ -459,7 +484,11 @@ function initiate_socks(socket,player,room, player_redis) {
                                 try {
                                     target_player = JSON.parse(data);
                                     live_target = player_list[target_player.id];
-                                    move_player(socket, redis_client, player_redis, live_target, player.realm, player.room_name, null, true);
+                                    if (typeof live_target !== 'undefined') {
+                                        move_player(socket, redis_client, player_redis, live_target, player.realm, player.room_name, null, true);
+                                    } else {
+                                        socket.emit('update', 'There is no live player by that name.');
+                                    }
                                 } catch(e) {
                                     socket.emit('update', 'There is no live player by that name.');
                                 }
@@ -580,10 +609,46 @@ function initiate_socks(socket,player,room, player_redis) {
                         socket.emit('update','There is no '+ target+' here.');
                     }
                 }
+                if (command === 'wizard' && player.wizard) {
+                    target = args.args[0];
+                    player_redis.get(target, function(err, data) {
+                        if (data) {
+                            target_player = JSON.parse(data);
+                            target_player.wizard = true;
+                            player_redis.set(target, JSON.stringify(target_player), function() {
+                                socket.emit('update','You have promoted:'+target);
+                                debug(player.name + 'granted '+target+' wizardship');
+                            });
+                        } else {
+                            socket.emit('update', target + ' has not logged in.');
+                            debug('WIZARD: Cannot find '+target);
+                        }
+                    });
+                }
+                if (command === 'demote' && player.wizard) {
+                    target = args.args[0];
+                    player_redis.get(target, function(err, data) {
+                        if (data) {
+                            target_player = JSON.parse(data);
+                            target_player.wizard = false;
+                            player_redis.set(target, JSON.stringify(target_player),function() {
+                                socket.emit('update','You have demoted '+target);
+                                debug(player.name + ' demoted '+ target);
+                            })
+                        } else {
+                            socket.emit('update', target + ' has not logged in.');
+                            debug('WIZARD: Cannot find '+target);
+                        }
+                    });
+                }
                 if (command === 'help') {
                     str = 'You can:\n';
                     for (var key in valid_commands) {
-                        str+= key + '-' + valid_commands[key] + '\n';
+                        if (player.wizard) {
+                            str+= key + '-' + valid_commands[key] + '\n';
+                        } else if (valid_commands[key].indexOf('Wizard only') < 0) {
+                            str+= key + '-' + valid_commands[key] + '\n';
+                        }
                     }
                     socket.emit('update',str);
                 }
