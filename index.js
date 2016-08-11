@@ -11,7 +11,7 @@ app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow','who','tele','spawn','i','inventory','inv','drop','get'];
+var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow','who','tele','spawn','i','inventory','inv','drop','get','help'];
 var player_list = {};
 var obj_list = {};
 
@@ -532,6 +532,13 @@ function initiate_socks(socket,player,room, player_redis) {
                     } else {
                         socket.emit('update','There is no '+ target+' here.');
                     }
+                }
+                if (command === 'help') {
+                    str = 'You can:\n';
+                    for (var key in valid_commands) {
+                        str+= valid_commands[key] +'\n';
+                    }
+                    socket.emit('update',str);
                 }
             } else {
                 debug('invalid command' + JSON.stringify(msg));
