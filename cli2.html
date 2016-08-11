@@ -17,6 +17,17 @@
                  \/          \/                 \/       \/\/           \/    \/     \/     \/     \/          \/       \/              \/     \/ 
 </pre>
 </div>
+<div>   
+    <p>Welcome to JSMUD.  A Multi-User Dungeon powered by NodeJS.</p>
+    <p>You can try login &lt;username&gt; (NOTE: Since we are still in very early alpha, there may be a user already with the username you've chosen.  We haven't implemented an account system yet so you might be logging in as a player who already has that username.</p>
+    <p>Once you are logged in, you'll notice the command line prompt change from "anon&gt; " to "[username]:[realm_name]/[room_name]&gt; ".  This will always indicated who and where you are.</p>
+    <p>You can always try "help" for the the list of valid commands once you are logged in</p>
+    <p>Moving around the realms, you can simply type "go [direction]".  For example, "go n" will attempt to go north if there is a valid exit in that direction.  You can also use the alias "n" instead of "go n", it does the same thing.</p>
+    <p>Players are persistent through server restarts.  Generally, the realms are not persistent.  Any objects dropped in the realm will disappear on server restart.  Once exception however is that workshops are persistent locales.  Any objects in workshops will persist through server restarts.  Also, any items on your character will persist through server restarts. However, if the database restarts, then everything (players and workshops included) are wiped.</p>
+    <p>The vanilla workshop is an area in another dimension that is a wizard's home.  Here the wizard can mute the rest of the world and craft objects of infinite imagination into reality.  The default workshop has no physical entry ways.  You must have to teleport to them using the "goto home" command.  If you are not a wizard, then this command will do nothing.  Wizards are very powerful realm builders and have god-like powers.  Be nice around wizards for they can easily turn you into dust.  Or a frog.</p>
+    <p>In order to become a wizard, you simply have to level up.  You level up by playing the game.  Or if any supreme-wizard grants you wizardship, then it's instantaneous.  A supreme-wizard is even more powerful than wizards.  If you come across a supreme-wizard in your wanderings throughout the realms, be very wary of them.</p>
+   <p>Dom't forget to use the "emote" command, it is so much fun.</p>
+</div>
         <script>
             var socket = io();
             var glob_term;
