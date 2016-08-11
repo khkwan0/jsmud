@@ -31,7 +31,8 @@
                     term.set_prompt(msg);
                 });
                 socket.on('disconnect',function(msg) {
-                    term.set_prompt('anon >');
+                    term.echo('Lost connection to server.');
+                    term.set_prompt('anon> ');
                 });
                 term = $('body').terminal(function(command, term) {
                     if (command !== '') {

@@ -5,5 +5,6 @@ room = {
     "short": "Ted's Office",
     "exits": {
         "exit":"outside_ted"
-    }
+    },
+    "npcs":"ted"
 }

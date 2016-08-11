@@ -11,8 +11,9 @@ app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow','who','tele'];
+var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow','who','tele','spawn','i','inventory','inv','drop','get'];
 var player_list = {};
+var obj_list = {};
 
 var redis_client = redis.createClient();
     redis_client.select(3, function() {
@@ -31,7 +32,8 @@ var redis_client = redis.createClient();
                 "realm":"main",
                 "room_name":"outside_ted",
                 "location": "main/outside_ted",
-                "ninja_mode": false
+                "ninja_mode": false,
+                "inv": {}
             }
 
             var room = {
@@ -157,30 +159,6 @@ var redis_client = redis.createClient();
                         }
                     });
                 });
-                /*
-                socket.on('login',function(msg) {
-                    args = JSON.parse(msg);
-                    console.log(args);
-                    if (args.name === 'login') {
-                        username = args.args[0];
-                        player_redis.get(username, function(err, data) {
-                            if (data) {
-                                player = JSON.parse(data);
-                                player.socket_id = socket.id;
-                                if (!player.id) {
-                                    player.id = uuid.v4();
-                                }
-                            } else {
-                                player.name = username;
-                                player.socket_id = socket.id;
-                                player.id = uuid.v4();
-                            }
-                            spawn_player_login(socket, redis_client, player_redis, player,room);
-                            initiate_socks(socket, player, room, player_redis);
-                        });
-                    }
-                });
-                */
             });
         });
     });
@@ -211,7 +189,6 @@ function initiate_socks(socket,player,room, player_redis) {
                 } else {
                     redis_client.set(room_id, JSON.stringify(room));
                 }
-                date = new Date();
                 debug(player.name+' disconnected.');
             }
         });
@@ -306,26 +283,11 @@ function initiate_socks(socket,player,room, player_redis) {
                             debug('Command LOOK get room from redis error: '+err);
                         } else {
                             room = JSON.parse(data);
-/*
-                            in_room = '';
-                            count = 0;
-                            for (var key in room.who) {
-                                in_room += key + ',';
-                                count++;
-                            }
-                            in_room = in_room.slice(0,-1);  // rmeove last comma
-                            */
                             socket.emit('update', command);
                             socket.emit('update', room.short);
                             socket.emit('update', room.long);
                             show_others_in_room(socket, room, player);
-                            /*
-                            if (count == 1) {
-                                socket.emit('update', 'You are the only one here');
-                            } else {
-                                socket.emit('update', 'There are '+count+' players here: '+in_room);
-                            }
-                            */
+                            show_room_inventory(socket, room ,player);
                             show_exits(socket, room);
                             if (player.ninja_mode) {
                                 socket.emit('update', 'You are in ninja mode!  "vis" to disable');
@@ -458,13 +420,166 @@ function initiate_socks(socket,player,room, player_redis) {
                         });
                     }
                 }
+                if (command === 'spawn' && player.wizard) {
+                    if (typeof args.args[0] !== 'undefined') {
+                        tokens = args.args[0].split('/',2);
+                        fs.readFile('./realms/'+tokens[0]+'/objs/'+tokens[1]+'.js', function(err, data) {
+                            if (data) {
+                                obj = JSON.parse(data);
+                                player_redis.incr('objs', function(err, obj_val) {
+                                    obj.name += '#'+obj_val;
+                                    obj.location = player.name+','+player.id;
+                                    str = 'Loaded '+args.args[0]+' name: '+obj.name+' alias: '+obj.alias;
+                                    debug(str);
+                                    socket.emit('update',str);
+                                    obj_list[obj.name] = obj;
+                                    if (typeof player.inv !== 'undefined') {
+                                        player.inv[obj.name] = obj;
+                                    } else {
+                                        player.inv = { [obj.name]:obj };
+                                    }
+                                    player_redis.set(player.name, JSON.stringify(player),function() {
+                                        show_inventory(socket, player_redis, player);
+                                    });
+                                });
+                            } else  {
+                                debug('Cannot load: '+args.args[0]);
+                                socket.emit('update','Cannot load: '+args.args[0]);
+                            }
+                        });
+                    }
+
+                }
+                if (command === 'i' || command ==='inventory' || command =='inv') {
+                    show_inventory(socket, player_redis, player);
+                }
+                if (command === 'drop') {
+                    target = args.args[0];
+                    if (typeof player.inv !== 'undefined') {
+                        if (typeof player.inv[target] !== 'undefined') {
+                            new_obj = {};
+                            for (var key in player.inv[target]) {
+                                new_obj[key] = player.inv[target][key];
+                            }
+                            if (typeof room.inv !== 'undefined') {
+                                new_obj.location = player.realm +'/' + player.room_name;
+                                room.inv[target] = new_obj;
+                            } else {
+                                room.inv = { [target]:new_obj };
+                            }
+                            if (typeof obj_list[target] !== 'undefined') {
+                                obj_list[target].location = player.realm+'/'+player.room_name;
+                            } else {
+                                obj_list[target] = new_obj;
+                            }
+                            if (player.ninja_mode) {
+                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', target+' appears out of nowhere.');
+                            } else {
+                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name +' dropped '+target);
+                            }
+                            socket.emit('update','You dropped a '+ target);
+                            delete player.inv[target];
+                            player_redis.set(player.name, JSON.stringify(player));
+                            if (player.realm === 'workshop') {
+                                player_redis.set(player.realm+'/'+player.room_name, JSON.stringify(room));
+                            } else {
+                                redis_client.set(player.realm+'/'+player.room_name, JSON.stringify(room));
+                            }
+                        }
+                    } else {
+                        socket.emit('update','You have nothing to drop.');
+                    }
+                }
+                if (command === 'get') {
+                    target = args.args[0];
+                    if (typeof room.inv[target] !== 'undefined') {
+                        if (room.inv[target].can_get) {
+                            new_obj = {};
+                            for (var keys in room.inv[target]) {
+                                new_obj[keys] = room.inv[target][keys];
+                            }
+                            new_obj.location = player.name+','+player.id;
+                            try {
+                                delete room.inv[target];
+                                if (typeof player.inv != 'undefined') {
+                                    player.inv[target] = new_obj;
+                                } else {
+                                    player.inv = { [target]:new_obj };
+                                }
+                                socket.emit('update','You picked up '+target+' and placed it in your inventory');
+                                if (player.ninja_mode) {
+                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', target +' appears to float in the air then disappears.');
+                                } else {
+                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' picked up '+target);
+                                }
+                                player_redis.set(player.name, JSON.stringify(player));
+                                if (typeof obj_list[target] !== 'undefined') {
+                                    obj_list[target].location = player.name +','+player.id;
+                                } else {
+                                    obj_list[target] = new_obj;
+                                }
+                                if (player.realm === 'workshop') {
+                                    player_redis.set(room.realm +'/'+ room.name, JSON.stringify(room));
+                                } else {
+                                    redis_client.set(room.realm +'/'+ room.name, JSON.stringify(room));
+                                }
+                            } catch(e) {
+                                debug('Couldn\'t delete for GET command.  Possible DUP');
+                            }
+                        } else {
+                            socket.emit('update','You cannot pick up '+target+'.');
+                        }
+                    } else {
+                        socket.emit('update','There is no '+ target+' here.');
+                    }
+                }
             } else {
-                debug('invalid command');
+                debug('invalid command' + JSON.stringify(msg));
                 socket.emit('update', 'Invalid command.');
             }
         }
     });
 };
+
+function show_inventory(socket, player_redis, player) {
+    str = 'Items in inventory:\n';
+    player_redis.get(player.name, function(err, data) {
+        if (data) {
+            the_player = JSON.parse(data);
+            for (var objs in the_player.inv) {
+                if (player.wizard && the_player.inv[objs].invisible) {
+                    str += player.inv[objs].name+' (invisibile)\n';
+                } else {
+                    str += player.inv[objs].name+'\n';
+                }
+            }
+            socket.emit('update',str);
+        } else {
+            debug('SHOW_INVENTORY REDIS MISS');
+        }
+    });
+}
+
+function show_room_inventory(socket, room, player) {
+    str = 'Objects in the room: \n';
+    redis_client.get(room.realm + '/' + room.name, function(err, data) {
+        if (data) {
+            the_room = JSON.parse(data);
+            if (typeof the_room.inv !== 'undefined') {
+                for (key in the_room.inv) {
+                    if (player.wizard && the_room.inv[key].invisible) {
+                        str+= key +' (invisible)\n';
+                    } else {
+                        str+= key +'\n';
+                    }
+                }
+            }
+            socket.emit('update',str);
+        } else {
+            debug('SHOW_ROOM_INVENTORY REDIS MISS: ' +room.realm +'/'+ room.name);
+        }
+    });
+}
 
 function move_player(socket, redis_client,player_redis, live_target, target_realm, target_room, target_thing,magical) {
     try {
@@ -664,6 +779,7 @@ function enter_room(socket, room, player, player_redis, magical) {
     socket.emit('update', room.long);
     socket.emit('prompt', player.name+':'+room_id+'> ');
     show_others_in_room(socket, room, player);
+    show_room_inventory(socket, room, player);
     show_exits(socket, room);
     if (player.ninja_mode) {
         socket.emit('update', 'You are in ninja mode!  "vis" to disable');
