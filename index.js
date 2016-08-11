@@ -287,7 +287,7 @@ function initiate_socks(socket,player,room, player_redis) {
                             socket.emit('update', room.short);
                             socket.emit('update', room.long);
                             show_others_in_room(socket, room, player);
-                            show_room_inventory(socket, room ,player);
+                            show_room_inventory(socket, room ,player,player_redis);
                             show_exits(socket, room);
                             if (player.ninja_mode) {
                                 socket.emit('update', 'You are in ninja mode!  "vis" to disable');
@@ -560,9 +560,13 @@ function show_inventory(socket, player_redis, player) {
     });
 }
 
-function show_room_inventory(socket, room, player) {
+function show_room_inventory(socket, room, player, player_redis) {
     str = 'Objects in the room: \n';
-    redis_client.get(room.realm + '/' + room.name, function(err, data) {
+    rclient = redis_client;
+    if (room.realm ==='workshop') {
+        rclient = player_redis;
+    }
+    rclient.get(room.realm + '/' + room.name, function(err, data) {
         if (data) {
             the_room = JSON.parse(data);
             if (typeof the_room.inv !== 'undefined') {
@@ -779,7 +783,7 @@ function enter_room(socket, room, player, player_redis, magical) {
     socket.emit('update', room.long);
     socket.emit('prompt', player.name+':'+room_id+'> ');
     show_others_in_room(socket, room, player);
-    show_room_inventory(socket, room, player);
+    show_room_inventory(socket, room, player,player_redis);
     show_exits(socket, room);
     if (player.ninja_mode) {
         socket.emit('update', 'You are in ninja mode!  "vis" to disable');
