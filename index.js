@@ -11,7 +11,7 @@ app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','who','emote','logout','goto','invis','vis','lol','l','bow','who','tele','spawn','i','inventory','inv','drop','get','help'];
+var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','emote','logout','goto','invis','vis','lol','l','bow','who','W','tele','spawn','i','inventory','inv','drop','get','help'];
 var player_list = {};
 var obj_list = {};
 
@@ -419,7 +419,7 @@ function initiate_socks(socket,player,room, player_redis) {
                         redis_client.set(room_id, JSON.stringify(room));
                     }
                 }
-                if (command === 'who') {
+                if (command === 'who' || command === 'W') {
                     plist = get_player_list(player);
                     socket.emit('update',plist.p_list);
                     socket.emit('update',plist.total_count + ' players online.');
