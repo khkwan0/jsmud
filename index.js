@@ -62,7 +62,11 @@ var redis_client = redis.createClient();
                             }
                             player.socket_id = socket.id;
                             add_player_to_list(player);
-                            redis_client.get(player.location, function(err, data) {
+                            rclient = redis_client;
+                            if (player.realm === 'workshop') {
+                                rclient = player_redis;
+                            }
+                            rclient.get(player.location, function(err, data) {
                                 if (data) {
                                     debug('REDIS room HIT' + data);
                                     room = JSON.parse(data);
@@ -75,8 +79,8 @@ var redis_client = redis.createClient();
                                         room.who = { [player.id]: player };
                                     }
                                     room_id = room.realm + '/' + room.name;
-                                    debug(room.who);
-                                    redis_client.set(room_id, JSON.stringify(room), function() {
+                                    debug('ROOM WHO :'+room.who);
+                                    rclient.set(room_id, JSON.stringify(room), function() {
                                         enter_room(socket, room, player, player_redis, false);
                                     });
 
@@ -89,7 +93,6 @@ var redis_client = redis.createClient();
                                             debug(player.name+' connected');
                                             room_id = player.realm + '/' + player.room_name;
                                             eval(data);
-                                            redis_client.set(room_id, JSON.stringify(room));
                                             initiate_socks(socket, player, room, player_redis);
 
                                             // update room who list
@@ -98,10 +101,17 @@ var redis_client = redis.createClient();
                                             } else {
                                                 room.who = { [player.id]: player };
                                             }
-                                            redis_client.set(room_id, JSON.stringify(room), function() {
-                                                debug('REDIS SET room_id: '+room_id)
-                                                enter_room(socket, room, player, player_redis, false);
-                                            });
+                                            if (player.realm === 'workshop') {
+                                                player_redis.set(room_id, JSON.stringify(room), function() {
+                                                    debug('REDIS SET room_id: '+room_id)
+                                                    enter_room(socket, room, player, player_redis, false);
+                                                });
+                                            } else {
+                                                redis_client.set(room_id, JSON.stringify(room), function() {
+                                                    debug('REDIS SET room_id: '+room_id)
+                                                    enter_room(socket, room, player, player_redis, false);
+                                                });
+                                            }
                                         }
                                     });
                                 }
@@ -127,9 +137,15 @@ var redis_client = redis.createClient();
                                         room.who = { [player.id]: player };
                                     }
                                     room_id = room.realm + '/' + room.name;
-                                    redis_client.set(room_id, JSON.stringify(room), function() {
-                                        enter_room(socket, room, player, player_redis,false);
-                                    });
+                                    if (player.realm === 'workshop') {
+                                        player_redis.set(room_id, JSON.stringify(room), function() {
+                                            enter_room(socket, room, player, player_redis,false);
+                                        });
+                                    } else {
+                                        redis_client.set(room_id, JSON.stringify(room), function() {
+                                            enter_room(socket, room, player, player_redis,false);
+                                        });
+                                    }
                                 } else {
                                     debug('REDIS room MISS: ' + room_id);
                                     fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8', function(err, data) {
@@ -139,7 +155,6 @@ var redis_client = redis.createClient();
                                             debug(player.name+' connected');
                                             room_id = player.realm + '/' + player.name;
                                             eval(data);
-                                            redis_client.set(room_id, JSON.stringify(room));
                                             initiate_socks(socket, player, room, player_redis);
 
                                             // update room who list
@@ -149,9 +164,16 @@ var redis_client = redis.createClient();
                                                 room.who = { [player.id]: player };
                                             }
                                             room_id = room.realm + '/' + room.name;
-                                            redis_client.set(room_id, JSON.stringify(room), function() {
-                                                enter_room(socket, room, player, player_redis, false);
-                                            });
+                                            if (player.realm ==='workshop') {
+                                                player_redis.set(room_id, JSON.stringify(room), function() {
+                                                    enter_room(socket, room, player, player_redis, false);
+                                                });
+                                            } else {
+                                                redis_client.set(room_id, JSON.stringify(room), function() {
+                                                    debug('REDIS SET room_id: '+room_id)
+                                                    enter_room(socket, room, player, player_redis, false);
+                                                });
+                                            }
                                         }
                                     });
                                 }
@@ -275,7 +297,7 @@ function initiate_socks(socket,player,room, player_redis) {
                 if (command === 'look' || command === 'l') {
                     room_id = player.realm + '/' + player.room_name;
                     rclient = redis_client;
-                    if (player.realm == 'workshop') {
+                    if (player.realm === 'workshop') {
                         rclient = player_redis;
                     }
                     rclient.get(room_id, function(err, data) {
@@ -308,7 +330,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                 enter_room(socket, room, player, player_redis, true);
                                 leave_room(socket, old_room, player, true); 
                             } else {
-                               debugg('REDIS goto MISS: ' + destination);
+                               debug('REDIS goto MISS: ' + destination);
                                 fs.readFile('./realms/workshop/rooms/'+player.name+'s_workshop.js','utf8', function(err, data) {
                                     if (err) {
                                         debug('FS goto load error:' + err);
