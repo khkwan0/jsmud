@@ -11,7 +11,32 @@ app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
 });
 
-var valid_commands = ['say','go','n','s','e','w','exit','logout','shout', 'gag','look','desc','emote','logout','goto','invis','vis','lol','l','bow','who','W','tele','spawn','i','inventory','inv','drop','get','help'];
+var valid_commands = {
+    'say':'say [something]'
+    ,'go':'go [n/s/e/w/enter/exit]'
+    ,'n/s/e/w/enter/exit':'a macro for go [n/s/e/w/enter/exit]'
+    ,'shout':'Yell across all realms, across all rooms - probably will be a wizard command to prevent spamming'
+    ,'gag':'(Wizard only) - Gag a player from talking'
+    ,'look':'Look at your surroundings'
+    ,'desc':'Same as look'
+    ,'emote':'emote [message] results in [player name] [message]'
+    ,'goto':'(Wizard only) - goto [room_id]: teleport to a room, a room id is [realm]/[room_name]'
+    ,'invis':'(Wizard only) - Go invisible.  You are hidden from mere mortals'
+    ,'vis':'(Wizard only) - Become visible to all'
+    ,'lol':'Laugh'
+    ,'l':'Another alias for the look command'
+    ,'bow':'Take a bow'
+    ,'who':'See who is currenly connected to the realms.'
+    ,'W':'An alias for who'
+    ,'tele':'(Wizard only) - tele [player name]: teleport a player to your location'
+    ,'spawn':'(Wizard only) - spawn [realm]/[object file name]: spawn an object into your inventory'
+    ,'i':'an alias for inventory'
+    ,'inventory':'see what you are currently carrying'
+    ,'inv':'Another alias for inventory'
+    ,'drop':'drop [item name]: drop an item into the room'
+    ,'get':'get [item name]: pick up an item in the room (if possible) and put it into your inventory'
+    ,'help':'This menu'
+};
 var player_list = {};
 var obj_list = {};
 
@@ -220,7 +245,7 @@ function initiate_socks(socket,player,room, player_redis) {
             debug(msg);
             args = JSON.parse(msg);
             command = args.name;
-            if (valid_commands.indexOf(command) >= 0) {
+            if (typeof valid_commands[command] !== 'undefined') {
                 if (command === 'say') {
                     if (!player.gagged) {
                         msg = args.rest;
@@ -558,7 +583,7 @@ function initiate_socks(socket,player,room, player_redis) {
                 if (command === 'help') {
                     str = 'You can:\n';
                     for (var key in valid_commands) {
-                        str+= valid_commands[key] +'\n';
+                        str+= key + '-' + valid_commands[key] + '\n';
                     }
                     socket.emit('update',str);
                 }
