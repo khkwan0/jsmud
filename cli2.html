@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script src="http://caldrivers.com/~ken/jsmud/assets/js/jquery.js"></script>
+        <script src="http://caldrivers.com/~ken/jsmud/assets/js/jquery.terminal-0.10.12.min.js"></script>
+        <script src="http://caldrivers.com/~ken/jsmud/assets/js/jquery.mousewheel-min.js"></script>
+        <script src="/socket.io/socket.io.js"></script>
+        <link href="http://caldrivers.com/~ken/jsmud/assets/css/jquery.terminal-0.10.12.min.css" rel="stylesheet"/>
+    </head>
+    <body>
+        <div><pre>
+     ____. _________    _____   ____ ___________    ___.            __                                __  .__       __                            
+    |    |/   _____/   /     \ |    |   \______ \   \_ |__ ___.__. |  | __ ____   ____   ____   _____/  |_|  |__   |  | ____  _  _______    ____  
+    |    |\_____  \   /  \ /  \|    |   /|    |  \   | __ <   |  | |  |/ // __ \ /    \ /    \_/ __ \   __\  |  \  |  |/ /\ \/ \/ /\__  \  /    \ 
+/\__|    |/        \ /    Y    \    |  / |    `   \  | \_\ \___  | |    <\  ___/|   |  \   |  \  ___/|  | |   Y  \ |    <  \     /  / __ \|   |  \
+\________/_______  / \____|__  /______/ /_______  /  |___  / ____| |__|_ \\___  >___|  /___|  /\___  >__| |___|  / |__|_ \  \/\_/  (____  /___|  /
+                 \/          \/                 \/       \/\/           \/    \/     \/     \/     \/          \/       \/              \/     \/ 
+</pre>
+</div>
+        <script>
+            var socket = io();
+            var glob_term;
+
+            jQuery(function($, undefined) {
+                socket.on('connect', function() {
+                });
+                socket.on('update',function(msg) {
+                    term.echo(msg);
+                });
+                socket.on('prompt', function(msg) {
+                    term.set_prompt(msg);
+                });
+                socket.on('disconnect',function(msg) {
+                    term.set_prompt('anon >');
+                });
+                term = $('body').terminal(function(command, term) {
+                    if (command !== '') {
+                        args = $.terminal.parse_command(command);
+                        if (args.name === 'login') {
+                            socket.emit('login', JSON.stringify(args));
+                        } else {
+                            switch (args.name) {
+                                case 'n':case 's': case 'e': case 'w': case 'enter': case 'exit':args.args[0] = args.name;args.name = 'go';break;
+                                default:break
+                            }
+                            socket.emit('cmd',JSON.stringify(args));
+                        }
+                    } else {
+                    }
+                }
+                , { greetings: false, prompt: 'anon> ' }
+                );
+            });
+        </script>
+    </body>
+</html>
