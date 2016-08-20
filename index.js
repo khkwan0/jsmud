@@ -6,6 +6,7 @@ var path = require('path');
 //var natural = require('natural');
 var uuid = require('uuid');
 var fs = require('fs');
+var em = require('events');
 
 app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
@@ -36,8 +37,11 @@ var valid_commands = {
     ,'drop':'drop [item name]: drop an item into the room'
     ,'get':'get [item name]: pick up an item in the room (if possible) and put it into your inventory'
     ,'clap':'Give a round of applause'
-    ,'wizard':'(Wizard only) wizard [target player]: Grant a mortal the gift of godliness.'
-    ,'demote':'(Wizard only) demote [target player]: Remove wizard status immediately.'
+    ,'wizard':'(Wizard only) - wizard [target player]: Grant a mortal the gift of godliness.'
+    ,'demote':'(Wizard only) - demote [target player]: Remove wizard status immediately.'
+    ,'dest': '(Wizard only) - dest [object/npc]: destroy an object or npc from the realms.'
+    ,'Look': '(Wizard only) - Hard look.'
+    ,'L': '(Wizard only) - Hard look.'
     ,'help':'This menu'
 };
 var player_list = {};
@@ -79,140 +83,213 @@ var redis_client = redis.createClient();
                 socket.on('login', function(msg) {
                     args = JSON.parse(msg);
                     player.name = args.args[0];
-                    player_redis.get(player.name, function(err, data) {
-                        if (data) {
-                            debug('REDIS player HIT:' + data);
-                            player = JSON.parse(data);
-                            if (!player.id) {
+                    if (typeof player.name !== 'undefined') {
+                        player_redis.get(player.name, function(err, data) {
+                            if (data) {
+//                                debug('REDIS player HIT:' + data);
+                                player = JSON.parse(data);
+                                if (!player.id) {
+                                    player.id = uuid.v4();
+                                    debug('Generating new player id: ' + player.id);
+                                    player_redis.set(player.name, JSON.stringify(player));
+                                }
+                                player.socket_id = socket.id;
+                                add_player_to_list(player);
+                                rclient = redis_client;
+                                if (player.realm === 'workshop') {
+                                    rclient = player_redis;
+                                }
+                                rclient.get(player.location, function(err, data) {
+                                    if (data) {
+                                        debug('REDIS room HIT' + data);
+                                        room = JSON.parse(data);
+                                        initiate_socks(socket, player, room, player_redis);
+
+                                        // update room who list
+                                        if (typeof room.who !== 'undefined') {
+                                            room.who[player.id] = player;
+                                        } else {
+                                            room.who = { [player.id]: player };
+                                        }
+                                        room_id = room.realm + '/' + room.name;
+                                        debug('ROOM WHO :'+room.who);
+                                        rclient.set(room_id, JSON.stringify(room), function() {
+                                            enter_room(socket, room, player, player_redis, false);
+                                        });
+
+                                    } else {
+                                        debug('REDIS room MISS: ' + player.location);
+                                        fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js', 'utf8', function(err, data) {
+                                            if (err) {
+                                                debug('could not load room: '+player.location);
+                                            } else {
+                                                debug(player.name+' connected');
+                                                room_id = player.realm + '/' + player.room_name;
+                                                eval(data);
+                                                // load npcs
+                                                multi = player_redis.multi();
+                                                if (typeof room.start_npcs !== 'undefined') {
+                                                    room.npcs = [];
+                                                    for (var i in room.start_npcs) {
+                                                        try {
+                                                            eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                                                            multi.incr('npc_id', function(err, data) {
+                                                                npc.name = npc.name+'#'+data;
+                                                                debug("NPC SPAWN:"+ npc.name);
+                                                                room.npcs.push(npc);
+                                                            });
+                                                        } catch(e) {
+                                                            debug('error loading npc from file: ' + e);
+                                                        }
+                                                    }
+                                                }
+                                                multi.exec(function() {
+                                                    initiate_socks(socket, player, room, player_redis);
+
+                                                    // update room who list
+                                                    if (typeof room.who !== 'undefined') {
+                                                        room.who[player.id] = player;
+                                                    } else {
+                                                        room.who = { [player.id]: player };
+                                                    }
+                                                    if (player.realm === 'workshop') {
+                                                        player_redis.set(room_id, JSON.stringify(room), function() {
+                                                            debug('PLAYER_REDIS SET room_id: '+room_id)
+                                                            enter_room(socket, room, player, player_redis, false);
+                                                        });
+                                                    } else {
+                                                        debug(JSON.stringify(room));
+                                                        redis_client.set(room_id, JSON.stringify(room), function() {
+                                                            debug('ROOM_REDIS SET room_id: '+room_id)
+                                                            enter_room(socket, room, player, player_redis, false);
+                                                        });
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    }
+                                });
+                            } else {
+                                debug('REDIS player MISS: ' + player.name);
+                                // new user
+                                room_id = room.realm + '/' + room.name;
                                 player.id = uuid.v4();
-                                debug('Generating new player id: ' + player.id);
                                 player_redis.set(player.name, JSON.stringify(player));
-                            }
-                            player.socket_id = socket.id;
-                            add_player_to_list(player);
-                            rclient = redis_client;
-                            if (player.realm === 'workshop') {
-                                rclient = player_redis;
-                            }
-                            rclient.get(player.location, function(err, data) {
-                                if (data) {
-                                    debug('REDIS room HIT' + data);
-                                    room = JSON.parse(data);
-                                    initiate_socks(socket, player, room, player_redis);
+                                player.socket_id = socket.id;
+                                add_player_to_list(player);
+                                redis_client.get(room_id, function(err, data) {
+                                    if (data) {
+                                        debug('REDIS room HIT: ' + data);
+                                        room = JSON.parse(data);
+                                        initiate_socks(socket, player, room, player_redis);
 
-                                    // update room who list
-                                    if (typeof room.who !== 'undefined') {
-                                        room.who[player.id] = player;
-                                    } else {
-                                        room.who = { [player.id]: player };
-                                    }
-                                    room_id = room.realm + '/' + room.name;
-                                    debug('ROOM WHO :'+room.who);
-                                    rclient.set(room_id, JSON.stringify(room), function() {
-                                        enter_room(socket, room, player, player_redis, false);
-                                    });
-
-                                } else {
-                                    debug('REDIS room MISS: ' + player.location);
-                                    fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js', 'utf8', function(err, data) {
-                                        if (err) {
-                                            debug('could not load room: '+player.location);
+                                        // update room who list
+                                        if (typeof room.who !== 'undefined') {
+                                            room.who[player.id] = player;
                                         } else {
-                                            debug(player.name+' connected');
-                                            room_id = player.realm + '/' + player.room_name;
-                                            eval(data);
-                                            initiate_socks(socket, player, room, player_redis);
-
-                                            // update room who list
-                                            if (typeof room.who !== 'undefined') {
-                                                room.who[player.id] = player;
-                                            } else {
-                                                room.who = { [player.id]: player };
-                                            }
-                                            if (player.realm === 'workshop') {
-                                                player_redis.set(room_id, JSON.stringify(room), function() {
-                                                    debug('REDIS SET room_id: '+room_id)
-                                                    enter_room(socket, room, player, player_redis, false);
-                                                });
-                                            } else {
-                                                redis_client.set(room_id, JSON.stringify(room), function() {
-                                                    debug('REDIS SET room_id: '+room_id)
-                                                    enter_room(socket, room, player, player_redis, false);
-                                                });
-                                            }
+                                            room.who = { [player.id]: player };
                                         }
-                                    });
-                                }
-                            });
-                        } else {
-                            debug('REDIS player MISS: ' + player.name);
-                            // new user
-                            room_id = room.realm + '/' + room.name;
-                            player.id = uuid.v4();
-                            player_redis.set(player.name, JSON.stringify(player));
-                            player.socket_id = socket.id;
-                            add_player_to_list(player);
-                            redis_client.get(room_id, function(err, data) {
-                                if (data) {
-                                    debug('REDIS room HIT: ' + data);
-                                    room = JSON.parse(data);
-                                    initiate_socks(socket, player, room, player_redis);
+                                        room_id = room.realm + '/' + room.name;
+                                        if (player.realm === 'workshop') {
+                                            player_redis.set(room_id, JSON.stringify(room), function() {
+                                                enter_room(socket, room, player, player_redis,false);
+                                            });
+                                        } else {
+                                            redis_client.set(room_id, JSON.stringify(room), function() {
+                                                enter_room(socket, room, player, player_redis,false);
+                                            });
+                                        }
+                                    } else {
+                                        debug('REDIS room MISS: ' + room_id);
+                                        fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8', function(err, data) {
+                                            if (err) {
+                                                debug('could not load room: '+player.location +' : '+err);
+                                            } else {
+                                                debug(player.name+' connected');
+                                                room_id = player.realm + '/' + player.name;
+                                                eval(data);
+                                                initiate_socks(socket, player, room, player_redis);
 
-                                    // update room who list
-                                    if (typeof room.who !== 'undefined') {
-                                        room.who[player.id] = player;
-                                    } else {
-                                        room.who = { [player.id]: player };
-                                    }
-                                    room_id = room.realm + '/' + room.name;
-                                    if (player.realm === 'workshop') {
-                                        player_redis.set(room_id, JSON.stringify(room), function() {
-                                            enter_room(socket, room, player, player_redis,false);
-                                        });
-                                    } else {
-                                        redis_client.set(room_id, JSON.stringify(room), function() {
-                                            enter_room(socket, room, player, player_redis,false);
+                                                // update room who list
+                                                if (typeof room.who !== 'undefined') {
+                                                    room.who[player.id] = player;
+                                                } else {
+                                                    room.who = { [player.id]: player };
+                                                }
+                                                room_id = room.realm + '/' + room.name;
+                                                if (player.realm ==='workshop') {
+                                                    player_redis.set(room_id, JSON.stringify(room), function() {
+                                                        enter_room(socket, room, player, player_redis, false);
+                                                    });
+                                                } else {
+                                                    redis_client.set(room_id, JSON.stringify(room), function() {
+                                                        debug('REDIS SET room_id: '+room_id)
+                                                        enter_room(socket, room, player, player_redis, false);
+                                                    });
+                                                }
+                                            }
                                         });
                                     }
-                                } else {
-                                    debug('REDIS room MISS: ' + room_id);
-                                    fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8', function(err, data) {
-                                        if (err) {
-                                            debug('could not load room: '+player.location +' : '+err);
-                                        } else {
-                                            debug(player.name+' connected');
-                                            room_id = player.realm + '/' + player.name;
-                                            eval(data);
-                                            initiate_socks(socket, player, room, player_redis);
-
-                                            // update room who list
-                                            if (typeof room.who !== 'undefined') {
-                                                room.who[player.id] = player;
-                                            } else {
-                                                room.who = { [player.id]: player };
-                                            }
-                                            room_id = room.realm + '/' + room.name;
-                                            if (player.realm ==='workshop') {
-                                                player_redis.set(room_id, JSON.stringify(room), function() {
-                                                    enter_room(socket, room, player, player_redis, false);
-                                                });
-                                            } else {
-                                                redis_client.set(room_id, JSON.stringify(room), function() {
-                                                    debug('REDIS SET room_id: '+room_id)
-                                                    enter_room(socket, room, player, player_redis, false);
-                                                });
-                                            }
-                                        }
-                                    });
-                                }
-                            });
-                        }
-                    });
+                                });
+                            }
+                        });
+                    } else {
+                        socket.emit('update','login <username>');
+                    }
                 });
             });
         });
     });
 });
+
+function load_npcs(room, player_redis) {
+    debug('LOAD_NPCS');
+    // npcs have been loaded, get from redis and never from file.  this npc exists in the world
+    if (typeof room.npcs !== 'undefined') {
+    debug('LOAD_NPCS here');
+        rclient = redis_client;
+        if (room.realm === 'workshop') {
+            rclient = player_redis;
+        }
+
+        // referesh all npcs living in room
+        for (var npc in room.npcs) {
+            rclient.get(npc, function(err, data) {
+                if (data) {
+                    room.npcs[npc] = JSON.parse(data);
+                }
+            });
+        }
+    } else {
+        // this room has just been loaded, spawn the npcsa
+        if (room.start_npcs != 'undefined') {
+            debug('LOAD_NPCS spawning NPCS');
+            room.npcs = {};
+            for (var npc_key in room.start_npcs) {
+                player_redis.incr('npc_num',function(err, npc_num) {
+                    debug('LOAD_NPCS readfile: '+room.start_npcs[npc_key]);
+                    data = fs.readFileSync('./realms/'+room.start_npcs[npc_key]+'.js', 'utf8');
+                    if (data) {
+                        try {
+                            debug('LOAD_NPCS data='+data);
+                            eval(data);
+                            npc.id = npc.name+'#'+npc_num;       
+                            debug('LOAD_NPCS npc.id='+npc.id);
+                            room.npcs[npc.id] = npc;
+                            rclient.set(npc.id, JSON.stringify(npc), function() {
+                                debug('LOAD_NPCS set '+npc.id);
+                            });
+                        } catch(e) {
+                            debug('Unable to parse '+room.start_npcs[npc_key]+'.js' + ' '+e);
+                        }
+                    } else {
+                        debug('LOAD_NPCS error readFile: ./realms/'+room.start_npcs[npc_key]+'.js');
+                    }
+                });
+            }
+        }
+    }
+}
 
 function debug(msg) {
     date = new Date();
@@ -360,6 +437,31 @@ function initiate_socks(socket,player,room, player_redis) {
                             socket.emit('update', room.long);
                             show_others_in_room(socket, room, player);
                             show_room_inventory(socket, room ,player,player_redis);
+                            show_npcs_in_room(socket,room,player,player_redis, false, false);
+                            show_exits(socket, room);
+                            if (player.ninja_mode) {
+                                socket.emit('update', 'You are in ninja mode!  "vis" to disable');
+                            }
+                        }
+                    });
+                }
+                if ((command === 'Look' || command === 'L') && player.wizard) {
+                    room_id = player.realm + '/' + player.room_name;
+                    rclient = redis_client;
+                    if (player.realm === 'workshop') {
+                        rclient = player_redis;
+                    }
+                    rclient.get(room_id, function(err, data) {
+                        if (err) {
+                            debug('Command HARD_LOOK get room from redis error: '+err);
+                        } else {
+                            room = JSON.parse(data);
+                            socket.emit('update', command);
+                            socket.emit('update', room.short);
+                            socket.emit('update', room.long);
+                            show_others_in_room(socket, room, player);
+                            show_room_inventory(socket, room ,player,player_redis);
+                            show_npcs_in_room(socket,room,player,player_redis, false, true);
                             show_exits(socket, room);
                             if (player.ninja_mode) {
                                 socket.emit('update', 'You are in ninja mode!  "vis" to disable');
@@ -377,8 +479,8 @@ function initiate_socks(socket,player,room, player_redis) {
                                 debug('REDIS goto HIT: '+data);
                                 room = JSON.parse(data);
                                 update_room_who(redis_client, room, player, old_room,player_redis);
-                                enter_room(socket, room, player, player_redis, true);
                                 leave_room(socket, old_room, player, true); 
+                                enter_room(socket, room, player, player_redis, true);
                             } else {
                                debug('REDIS goto MISS: ' + destination);
                                 fs.readFile('./realms/workshop/rooms/'+player.name+'s_workshop.js','utf8', function(err, data) {
@@ -387,10 +489,11 @@ function initiate_socks(socket,player,room, player_redis) {
                                     } else {
                                         if (data) {
                                             eval(data);
+                                            load_npcs(room,player_redis);
                                             player_redis.set(destination, JSON.stringify(room));
                                             update_room_who(redis_client, room, player, old_room,player_redis);
-                                            enter_room(socket, room, player, player_redis, true);
                                             leave_room(socket, old_room, player, true); 
+                                            enter_room(socket, room, player, player_redis, true);
                                         } 
                                     }
                                 });
@@ -406,8 +509,8 @@ function initiate_socks(socket,player,room, player_redis) {
                                     debug('REDIS goto HIT: '+data);
                                     room = JSON.parse(data);
                                     update_room_who(redis_client, room, player, old_room, player_redis);
-                                    enter_room(socket, room, player, player_redis, true);
                                     leave_room(socket, old_room, player, true); 
+                                    enter_room(socket, room, player, player_redis, true);
                                 } else {
                                     parts = destination.split('/',2);
                                     debug('REDIS goto MISS '+ destination + parts.length);
@@ -421,14 +524,15 @@ function initiate_socks(socket,player,room, player_redis) {
                                             } else {
                                                 if (data) {
                                                     eval(data);
+                                                    load_npcs(room,player_redis);
                                                     if (realm == 'workshop') {
                                                         player_redis.set(destination, JSON.stringify(room));
                                                     } else {
                                                         redis_client.set(destination, JSON.stringify(room));
                                                     }
                                                     update_room_who(redis_client, room, player, old_room, player_redis);
-                                                    enter_room(socket, room, player, player_redis, true);
                                                     leave_room(socket, old_room, player, true); 
+                                                    enter_room(socket, room, player, player_redis, true);
 
                                                 }
                                             }
@@ -502,6 +606,9 @@ function initiate_socks(socket,player,room, player_redis) {
                         fs.readFile('./realms/'+tokens[0]+'/objs/'+tokens[1]+'.js', function(err, data) {
                             if (data) {
                                 obj = JSON.parse(data);
+                                obj.str_func = 'a=function(socket,player) { socket.emit("update","'+obj.alias+' says ehllo " + player.name) }';
+                                obj.em = new em();
+                                obj.em.on('arrive', eval(obj.str_func));
                                 player_redis.incr('objs', function(err, obj_val) {
                                     obj.name += '#'+obj_val;
                                     obj.location = player.name+','+player.id;
@@ -517,6 +624,7 @@ function initiate_socks(socket,player,room, player_redis) {
                                     player_redis.set(player.name, JSON.stringify(player),function() {
                                         show_inventory(socket, player_redis, player);
                                     });
+                                    player.inv[obj.name].em.emit('event');
                                 });
                             } else  {
                                 debug('Cannot load: '+args.args[0]);
@@ -525,6 +633,32 @@ function initiate_socks(socket,player,room, player_redis) {
                         });
                     }
 
+                }
+                if (command === 'dest' && player.wizard) {
+                    if (typeof args.args[0] !== 'undefined') {
+                        target = args.args[0];
+                        found = false;
+                        try {
+                            for (var i in room.npcs) {
+                                if (room.npcs[i].name === target) {
+                                    found = true;
+                                    room.npcs.splice(i,1);
+                                    break;
+                                }
+                            }
+                            if (found) {
+                                rclient = redis_client;
+                                if (room.realm === 'workshop') {
+                                    rclient = player_redis;
+                                }
+                                debug('DEST new room:'+ JSON.stringify(room));
+                                rclient.set(room.realm+'/'+room.name, JSON.stringify(room));
+                                socket.emit('update', 'You destroyed '+target);
+                            }
+                        } catch(e) {
+                            debug('DEST error('+target+'): '+ e);
+                        }
+                    }
                 }
                 if (command === 'i' || command ==='inventory' || command =='inv') {
                     show_inventory(socket, player_redis, player);
@@ -660,6 +794,10 @@ function initiate_socks(socket,player,room, player_redis) {
     });
 };
 
+function spawn_it() {
+    console.log('spawn_it');
+}
+
 function show_inventory(socket, player_redis, player) {
     str = 'Items in inventory:\n';
     player_redis.get(player.name, function(err, data) {
@@ -679,7 +817,7 @@ function show_inventory(socket, player_redis, player) {
     });
 }
 
-function show_room_inventory(socket, room, player, player_redis) {
+function show_room_inventory(socket, room, player, player_redis, some_event) {
     str = 'Objects in the room: \n';
     rclient = redis_client;
     if (room.realm ==='workshop') {
@@ -690,14 +828,27 @@ function show_room_inventory(socket, room, player, player_redis) {
             the_room = JSON.parse(data);
             if (typeof the_room.inv !== 'undefined') {
                 for (key in the_room.inv) {
+                    the_room.inv[key].em = new em();
                     if (player.wizard && the_room.inv[key].invisible) {
                         str+= key +' (invisible)\n';
                     } else {
                         str+= key +'\n';
                     }
+                    if (typeof the_room.inv[key].str_func !== 'undefined') {
+                        the_room.inv[key].em.on('arrive', eval(the_room.inv[key].str_func));
+                    }
+                }
+                socket.emit('update',str);
+                for (key in the_room.inv) {
+                    if (typeof the_room.inv[key].em !== 'undefined') {
+                        try {
+                            the_room.inv[key].em.emit(some_event,socket,player);
+                        } catch(e) {
+                            debug('SHOW_ROOM_INVENTORY em.emit error('+key+'): '+e);
+                        }
+                    }
                 }
             }
-            socket.emit('update',str);
         } else {
             debug('SHOW_ROOM_INVENTORY REDIS MISS: ' +room.realm +'/'+ room.name);
         }
@@ -715,12 +866,14 @@ function move_player(socket, redis_client,player_redis, live_target, target_real
         if (data) {
             debug('MOVE_PLAYER REDIS client HIT: '+data);
             room = JSON.parse(data);
+            load_npcs(room,player_redis);
             move_player_to_room(socket, redis_client, player_redis, live_target,room,magical);
         } else {
             debug('MOVE_PLAYER REDIS client MISS:'+ target_realm+'/'+target_room);
             fs.readFile('./realms/'+target_realm+'/rooms/'+target_room+'.js', 'utf8', function(err, data) {
                 if (data) {
                     eval(data);
+                    load_npcs(room,player_redis);
                     move_player_to_room(socket, redis_client, player_redis, live_target,room, magical);
                 } else {
                     socket.emit('update', './realms/'+target_realm+'/rooms/'+target_room+'.js does not exist.');
@@ -884,6 +1037,65 @@ function leave_room(socket, old_room, player, magical) {
     socket.leave(old_room.realm+'/'+old_room.name);
 }
 
+function show_npcs_in_room(socket, room, player, player_redis, process_listeners, hard_look) {
+    npcs = '';
+    /*
+    rclient = redis_client;
+    debug('SHOW_NPCS_IN_ROOM ' + room.npcs);
+    if (typeof room.npcs !== 'undefined') {
+        multi = rclient.multi();
+        for (var npc_key in room.npcs) {
+            debug('SHOW_NPCS_IN_ROOM attempting to load: '+ npc_key);
+            multi.get(npc_key, function(data) {
+                npc = JSON.parse(data);
+                npcs += npcs.name + 'is here.\n';
+                debug('SHOW_NPCS_IN_ROOM '+ npcs);
+            });
+        }
+        multi.exec();
+        debug('SHOW_NPCS_IN_ROOM final: '+ npcs);
+    }
+    */
+    if (typeof room.npcs !== 'undefined') {
+        for (var i in room.npcs) {
+            if (hard_look) {
+                npcs += room.npcs[i].name + ' is here.\n';
+            } else {
+                npcs += room.npcs[i].alias + ' is here.\n';
+            }
+            if (process_listeners) {
+                if (typeof room.npcs[i].events !== 'undefined') {
+                    room.npcs[i].listener = new em();
+                    for (var ev in room.npcs[i].events) {
+                        room.npcs[i].listener.on(ev, function(event_name,npc_obj,player) {
+                        var num_actions = npc_obj.events[event_name].actions.length;
+                            if (num_actions == 1) {
+                                opt = 0;
+                                to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
+                                bcast_emote = to_emote.replace('%you%', player.name);
+                                you_emote = to_emote.replace('%you%', 'you');
+                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias + ' ' + you_emote);
+                                socket.emit('update', npc_obj.alias+ ' '+ to_emote);
+                            } else {
+                                min = 0;
+                                max = num_actions-1;
+                                opt = Math.floor(Math.random() * (max - min + 1)) + min;
+                                debug('npc option: '+opt);
+                                to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
+                                bcast_emote = to_emote.replace('%you%', player.name);
+                                you_emote = to_emote.replace('%you%', 'you');
+                                socket.emit('update', npc_obj.alias + ' ' + you_emote);
+                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias+ ' ' + bcast_emote);
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+    socket.emit('update', npcs);
+}
+
 function enter_room(socket, room, player, player_redis, magical) {
     room_id = room.realm+'/'+room.name;
     debug('enter_room: '+room_id);
@@ -898,18 +1110,26 @@ function enter_room(socket, room, player, player_redis, magical) {
     if (magical) {
         socket.emit('update','You\'ve just been teleported!');
     }
+
     socket.emit('update', room.short);
     socket.emit('update', room.long);
     socket.emit('prompt', player.name+':'+room_id+'> ');
+    show_npcs_in_room(socket,room,player,player_redis, true, false);
     show_others_in_room(socket, room, player);
-    show_room_inventory(socket, room, player,player_redis);
+    show_room_inventory(socket, room, player,player_redis,'arrive');
     show_exits(socket, room);
+
     if (player.ninja_mode) {
         socket.emit('update', 'You are in ninja mode!  "vis" to disable');
     }
     player = update_player_location(room, player);
     player_redis.set(player.name, JSON.stringify(player));
     player_list[player.id] = player;
+    if (typeof room.npcs !== 'undefined') {
+        for (var i in room.npcs) {
+            room.npcs[i].listener.emit('arrive', 'arrive', room.npcs[i], player);
+        }
+    }
 }
 
 function update_player_location(room, player) {

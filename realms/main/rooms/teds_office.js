@@ -6,5 +6,5 @@ room = {
     "exits": {
         "exit":"outside_ted"
     },
-    "npcs":"ted"
+    "start_npcs":["main/npcs/ted"]
 }
