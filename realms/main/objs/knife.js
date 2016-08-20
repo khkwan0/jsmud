@@ -5,5 +5,9 @@
     "short":"A 6-inch knife with a decorated hilt.",
     "public": true,
     "invisible":false,
-    "can_get":true
+    "can_get":true,
+    "can_wield": true,
+    "min_damage":1,
+    "max_damage":5,
+    "can_block":false
 }

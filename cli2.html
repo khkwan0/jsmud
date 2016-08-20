@@ -45,6 +45,10 @@
                     term.echo('Lost connection to server.');
                     term.set_prompt('anon> ');
                 });
+
+                socket.on('internal', function(msg) {
+                    socket.emit('internal', msg);
+                });
                 term = $('body').terminal(function(command, term) {
                     if (command !== '') {
                         args = $.terminal.parse_command(command);

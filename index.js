@@ -42,6 +42,12 @@ var valid_commands = {
     ,'dest': '(Wizard only) - dest [object/npc]: destroy an object or npc from the realms.'
     ,'Look': '(Wizard only) - Hard look.'
     ,'L': '(Wizard only) - Hard look.'
+    ,'lwield': 'lwield <obj>: Wield an object or a weapon in your LEFT hand.'
+    ,'rwield': 'rwield <obj>: Wield an object or a wepaon in yor RIGHT hand.'
+    ,'lholster': 'Put away an object or weapon from your LEFT hand into your bag.'
+    ,'rholster': 'Put away an object or weapon from your RIGHT hand into your bag.'
+    ,'attack': 'attack <player|npc> <player name|npc name>.'
+    ,'kill': 'kill <player|npc> <player name|npc name>: same as attack.'
     ,'help':'This menu'
 };
 var player_list = {};
@@ -112,7 +118,6 @@ var redis_client = redis.createClient();
                                             room.who = { [player.id]: player };
                                         }
                                         room_id = room.realm + '/' + room.name;
-                                        debug('ROOM WHO :'+room.who);
                                         rclient.set(room_id, JSON.stringify(room), function() {
                                             enter_room(socket, room, player, player_redis, false);
                                         });
@@ -124,8 +129,9 @@ var redis_client = redis.createClient();
                                                 debug('could not load room: '+player.location);
                                             } else {
                                                 debug(player.name+' connected');
-                                                room_id = player.realm + '/' + player.room_name;
                                                 eval(data);
+                                                room_id = room.realm + '/' + room.name;
+                                                initiate_socks(socket, player, room, player_redis);
                                                 // load npcs
                                                 multi = player_redis.multi();
                                                 if (typeof room.start_npcs !== 'undefined') {
@@ -135,7 +141,9 @@ var redis_client = redis.createClient();
                                                             eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
                                                             multi.incr('npc_id', function(err, data) {
                                                                 npc.name = npc.name+'#'+data;
-                                                                debug("NPC SPAWN:"+ npc.name);
+                                                                npc.room = room.name;
+                                                                npc.realm = room.realm;
+                                                                debug("NPC SPAWN: "+ npc.name);
                                                                 room.npcs.push(npc);
                                                             });
                                                         } catch(e) {
@@ -144,7 +152,6 @@ var redis_client = redis.createClient();
                                                     }
                                                 }
                                                 multi.exec(function() {
-                                                    initiate_socks(socket, player, room, player_redis);
 
                                                     // update room who list
                                                     if (typeof room.who !== 'undefined') {
@@ -160,7 +167,7 @@ var redis_client = redis.createClient();
                                                     } else {
                                                         debug(JSON.stringify(room));
                                                         redis_client.set(room_id, JSON.stringify(room), function() {
-                                                            debug('ROOM_REDIS SET room_id: '+room_id)
+                                                            debug('ROOM_REDIS SET room_id: '+room_id+room.npcs[0].hp)
                                                             enter_room(socket, room, player, player_redis, false);
                                                         });
                                                     }
@@ -241,7 +248,7 @@ var redis_client = redis.createClient();
         });
     });
 });
-
+/*
 function load_npcs(room, player_redis) {
     debug('LOAD_NPCS');
     // npcs have been loaded, get from redis and never from file.  this npc exists in the world
@@ -261,7 +268,7 @@ function load_npcs(room, player_redis) {
             });
         }
     } else {
-        // this room has just been loaded, spawn the npcsa
+        // this room has just been loaded, spawn the npcs
         if (room.start_npcs != 'undefined') {
             debug('LOAD_NPCS spawning NPCS');
             room.npcs = {};
@@ -289,7 +296,7 @@ function load_npcs(room, player_redis) {
             }
         }
     }
-}
+}*/
 
 function debug(msg) {
     date = new Date();
@@ -319,6 +326,46 @@ function initiate_socks(socket,player,room, player_redis) {
                 debug(player.name+' disconnected.');
             }
         });
+    });
+    socket.on('internal', function(msg) {
+        debug('INTERNAL: '+msg);
+        args = msg.split(' ');
+        command = args[0];
+        if (player.id && command === 'damage') {
+        try {
+            target = args[1];
+            new_hp = args[2];
+            if (typeof room.npcs !== 'undefined') {
+                found = false;
+                for (var i in room.npcs) {
+                    if (room.npcs[i].name === target) {
+                        rclient = redis_client;
+                        if (room.realm === 'workshop') {
+                            rclient = player_redis;
+                        }
+                        room.npcs[i].hp = new_hp;
+                        found = true;
+                        socket.emit('update',target + ' has been damaged for '+amt+' hitpoints.  '+room.npcs[i].hp+' remaining.');
+                        if (room.npcs[i].hp<1) {
+                            room.npcs[i].alias = 'Corpse of '+ room.npcs[i].alias;
+                        }
+                        rclient.set(room.realm+'/'+room.name, JSON.stringify(room));
+                        break;
+                    }
+                }
+                /*
+                if (found && idx>=0) {
+                    debug(room.npcs[idx].alias+':'+room.npcs[idx].hp);
+                    debug(room.npcs[idx].alias+':'+room.npcs[idx].hp);
+                } else {
+                    socket.emit('update',target + 'has NOT been damaged for '+amt+' hitpoints.  '+room.npcs[idx].hp+' remaining.');
+                }
+                */
+            }
+        } catch(e) {
+            debug(e);
+        }
+        }
     });
     socket.on('cmd', function(msg) {
         if (player.id) {
@@ -700,6 +747,48 @@ function initiate_socks(socket,player,room, player_redis) {
                         socket.emit('update','You have nothing to drop.');
                     }
                 }
+                if (command === 'attack' || command === 'kill') {
+                    rclient = redis_client;
+                    if (room.realm === 'workshop') {
+                        rclient = player_redis;
+                    }
+                    if (typeof args.args[0] !== 'undefined'  && typeof args.args[1] !== 'undefined') {
+                        if (args.args[0] !== 'player' && args.args[0] !== 'npc') {
+                             socket.emit('update', 'Invalid target to attack ' + args.args[0]+' '+args.args[1]+'.  Try '+ command + ' <player|npc> <player name|npc name>.');
+                        } else {
+                                    if (args.args[0] === 'npc') {
+                                        found = false;
+                                        target = args.args[1];
+                                        target_alias = '';
+                                        target_name = '';
+                                        idx = -1;
+                                        for (var i in room.npcs) {
+                                            if (room.npcs[i].alias.toLowerCase() === target.toLowerCase()) {
+                                                found = true;
+                                                target_alias = room.npcs[i].alias;
+                                                target_name = room.npcs[i].name;
+                                                idx = i;
+                                                break;
+                                            }
+                                        }
+                                        if (found) {
+                                            amt = 500;
+                                            new_hp = room.npcs[idx].hp - amt;
+                                            debug(player.name+' ATTACKS target: '+target_name);
+                                            socket.emit('update', 'You attack '+target_alias+' for '+amt+' hitpoints.  '+new_hp+' remaining.');
+                                            socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' attacks ' + target_alias);
+                                            io.in(room.realm+'/'+room.name).emit('internal', 'damage '+target_name+' '+new_hp);
+                                        } else {
+                                            debug(player.name+' ATTACKS target: '+target);
+                                            socket.emit('update', 'Target not found: ' + args.args[0]+' '+args.args[1]+'.  Try '+command+' <player|npc> <player name|npc name>.');
+                                        }
+                                    } else {
+                                    }
+                        }
+                    } else {
+                        socket.emit('update', 'Invalid target to attack.  Try attack <player|npc> <player name|npc name>');
+                    }
+                }
                 if (command === 'get') {
                     target = args.args[0];
                     if (typeof room.inv[target] !== 'undefined') {
@@ -1039,23 +1128,6 @@ function leave_room(socket, old_room, player, magical) {
 
 function show_npcs_in_room(socket, room, player, player_redis, process_listeners, hard_look) {
     npcs = '';
-    /*
-    rclient = redis_client;
-    debug('SHOW_NPCS_IN_ROOM ' + room.npcs);
-    if (typeof room.npcs !== 'undefined') {
-        multi = rclient.multi();
-        for (var npc_key in room.npcs) {
-            debug('SHOW_NPCS_IN_ROOM attempting to load: '+ npc_key);
-            multi.get(npc_key, function(data) {
-                npc = JSON.parse(data);
-                npcs += npcs.name + 'is here.\n';
-                debug('SHOW_NPCS_IN_ROOM '+ npcs);
-            });
-        }
-        multi.exec();
-        debug('SHOW_NPCS_IN_ROOM final: '+ npcs);
-    }
-    */
     if (typeof room.npcs !== 'undefined') {
         for (var i in room.npcs) {
             if (hard_look) {
@@ -1066,26 +1138,33 @@ function show_npcs_in_room(socket, room, player, player_redis, process_listeners
             if (process_listeners) {
                 if (typeof room.npcs[i].events !== 'undefined') {
                     room.npcs[i].listener = new em();
+                    /*
+                    room.npcs[i].interval = setInterval(function() {
+                        socket.emit('update','asdasd');
+                    },10000);
+                    */
                     for (var ev in room.npcs[i].events) {
                         room.npcs[i].listener.on(ev, function(event_name,npc_obj,player) {
-                        var num_actions = npc_obj.events[event_name].actions.length;
-                            if (num_actions == 1) {
-                                opt = 0;
-                                to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
-                                bcast_emote = to_emote.replace('%you%', player.name);
-                                you_emote = to_emote.replace('%you%', 'you');
-                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias + ' ' + you_emote);
-                                socket.emit('update', npc_obj.alias+ ' '+ to_emote);
-                            } else {
-                                min = 0;
-                                max = num_actions-1;
-                                opt = Math.floor(Math.random() * (max - min + 1)) + min;
-                                debug('npc option: '+opt);
-                                to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
-                                bcast_emote = to_emote.replace('%you%', player.name);
-                                you_emote = to_emote.replace('%you%', 'you');
-                                socket.emit('update', npc_obj.alias + ' ' + you_emote);
-                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias+ ' ' + bcast_emote);
+                            if (npc_obj.hp>0) {
+                                var num_actions = npc_obj.events[event_name].actions.length;
+                                if (num_actions == 1) {
+                                    opt = 0;
+                                    to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
+                                    bcast_emote = to_emote.replace('%you%', player.name);
+                                    you_emote = to_emote.replace('%you%', 'you');
+                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias + ' ' + you_emote);
+                                    socket.emit('update', npc_obj.alias+ ' '+ to_emote);
+                                } else {
+                                    min = 0;
+                                    max = num_actions-1;
+                                    opt = Math.floor(Math.random() * (max - min + 1)) + min;
+                                    debug('npc option: '+opt);
+                                    to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
+                                    bcast_emote = to_emote.replace('%you%', player.name);
+                                    you_emote = to_emote.replace('%you%', 'you');
+                                    socket.emit('update', npc_obj.alias + ' ' + you_emote);
+                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias+ ' ' + bcast_emote);
+                                }
                             }
                         });
                     }
