@@ -46,8 +46,12 @@
                     term.set_prompt('anon> ');
                 });
 
-                socket.on('internal', function(msg) {
-                    socket.emit('internal', msg);
+                socket.on('loopback', function(msg) {
+                    if (msg === 'disconnect') {
+                        socket.emit('disconnect');
+                    } else {
+                        socket.emit('internal', msg);
+                    }
                 });
                 term = $('body').terminal(function(command, term) {
                     if (command !== '') {

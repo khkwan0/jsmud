@@ -3,5 +3,5 @@ room = {
     "realm":"main",
     "short":"Accounting Area",
     "long":"You are in the accounting area.",
-    "exits":{"n":"outside_ted"}
+    "exits":{"n":"main/outside_ted"}
 }

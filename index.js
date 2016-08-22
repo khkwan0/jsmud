@@ -8,10 +8,7 @@ var uuid = require('uuid');
 var fs = require('fs');
 var em = require('events');
 
-app.get('/', function(req, res) {
-    res.sendFile(path.join(__dirname + '/cli2.html'));
-});
-
+var attack_timeout = 5000;
 var valid_commands = {
     'say':'say [something]'
     ,'go':'go [n/s/e/w/enter/exit]'
@@ -38,7 +35,9 @@ var valid_commands = {
     ,'get':'get [item name]: pick up an item in the room (if possible) and put it into your inventory'
     ,'clap':'Give a round of applause'
     ,'wizard':'(Wizard only) - wizard [target player]: Grant a mortal the gift of godliness.'
+    ,'wiz':'(Wizard only) - wizard [target player]: Grant a mortal the gift of godliness.'
     ,'demote':'(Wizard only) - demote [target player]: Remove wizard status immediately.'
+    ,'dem':'(Wizard only) - demote [target player]: Remove wizard status immediately.'
     ,'dest': '(Wizard only) - dest [object/npc]: destroy an object or npc from the realms.'
     ,'Look': '(Wizard only) - Hard look.'
     ,'L': '(Wizard only) - Hard look.'
@@ -48,323 +47,757 @@ var valid_commands = {
     ,'rholster': 'Put away an object or weapon from your RIGHT hand into your bag.'
     ,'attack': 'attack <player|npc> <player name|npc name>.'
     ,'kill': 'kill <player|npc> <player name|npc name>: same as attack.'
+    ,'res': 'res <player|npc> : restore health back to max_hp.'
+    ,'logout': 'save and quit'
+    ,'disconnect': 'save and quit'
+    ,'quit': 'save and quit'
     ,'help':'This menu'
 };
 var player_list = {};
 var obj_list = {};
+var rooms = {};
+//var redis_client = redis.createClient();
+var player_redis = redis.createClient();
 
-var redis_client = redis.createClient();
-    redis_client.select(3, function() {
-        redis_client.flushdb(function() {;
+http.listen(2500);
+app.get('/', function(req, res) {
+    res.sendFile(path.join(__dirname + '/cli2.html'));
+});
 
-        io.on('connection', function(socket) {
-            var player = {
-                "id":null,
-                "name":0,
-                "alias":null,
-                "gagged": false,
-                "level": 1,
-                "ghost": false,
-                "hp":100,
-                "wizard": false,
-                "realm":"main",
-                "room_name":"outside_ted",
-                "location": "main/outside_ted",
-                "ninja_mode": false,
-                "inv": {}
-            }
+io.on('connection', function(socket) {
+    var player = {
+        "id":null,
+        "name":0,
+        "alias":null,
+        "gagged": false,
+        "level": 1,
+        "ghost": false,
+        "hp":100,
+        "max_hp": 100,
+        "wizard": false,
+        "realm":"main",
+        "room_name":"outside_ted",
+        "location": "main/outside_ted",
+        "ninja_mode": false,
+        "inv": {}
+    }
 
-            var room = {
-                "name":"outside_ted",
-                "realm":"main",
-                "long":"You are standing outside of Ted's office on the fifth floor of the 9000 building.  It is a beautiful, clear day in Southern California.  The area is brightly lit by the white tiles and floor to ceiling windows.  Just south of you is the accounting area while just a few steps west will bring you in front of the executive shiiter.",
-                "short": "Outside of Ted's Office",
-                "owner": 0,
-                "exits": {'w':'hallway_exec_bathroom', 's':'account_area','enter':'teds_office'},
-                "who": {}
-            }
-
-            var player_redis = redis.createClient();
-            player_redis.select(5, function() {
-                socket.on('login', function(msg) {
-                    args = JSON.parse(msg);
-                    player.name = args.args[0];
-                    if (typeof player.name !== 'undefined') {
-                        player_redis.get(player.name, function(err, data) {
-                            if (data) {
-//                                debug('REDIS player HIT:' + data);
-                                player = JSON.parse(data);
-                                if (!player.id) {
-                                    player.id = uuid.v4();
-                                    debug('Generating new player id: ' + player.id);
-                                    player_redis.set(player.name, JSON.stringify(player));
-                                }
-                                player.socket_id = socket.id;
-                                add_player_to_list(player);
-                                rclient = redis_client;
-                                if (player.realm === 'workshop') {
-                                    rclient = player_redis;
-                                }
-                                rclient.get(player.location, function(err, data) {
-                                    if (data) {
-                                        debug('REDIS room HIT' + data);
-                                        room = JSON.parse(data);
-                                        initiate_socks(socket, player, room, player_redis);
-
-                                        // update room who list
-                                        if (typeof room.who !== 'undefined') {
-                                            room.who[player.id] = player;
-                                        } else {
-                                            room.who = { [player.id]: player };
-                                        }
-                                        room_id = room.realm + '/' + room.name;
-                                        rclient.set(room_id, JSON.stringify(room), function() {
-                                            enter_room(socket, room, player, player_redis, false);
-                                        });
-
-                                    } else {
-                                        debug('REDIS room MISS: ' + player.location);
-                                        fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js', 'utf8', function(err, data) {
-                                            if (err) {
-                                                debug('could not load room: '+player.location);
-                                            } else {
-                                                debug(player.name+' connected');
-                                                eval(data);
-                                                room_id = room.realm + '/' + room.name;
-                                                initiate_socks(socket, player, room, player_redis);
-                                                // load npcs
-                                                multi = player_redis.multi();
-                                                if (typeof room.start_npcs !== 'undefined') {
-                                                    room.npcs = [];
-                                                    for (var i in room.start_npcs) {
-                                                        try {
-                                                            eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
-                                                            multi.incr('npc_id', function(err, data) {
-                                                                npc.name = npc.name+'#'+data;
-                                                                npc.room = room.name;
-                                                                npc.realm = room.realm;
-                                                                debug("NPC SPAWN: "+ npc.name);
-                                                                room.npcs.push(npc);
-                                                            });
-                                                        } catch(e) {
-                                                            debug('error loading npc from file: ' + e);
-                                                        }
-                                                    }
-                                                }
-                                                multi.exec(function() {
-
-                                                    // update room who list
-                                                    if (typeof room.who !== 'undefined') {
-                                                        room.who[player.id] = player;
-                                                    } else {
-                                                        room.who = { [player.id]: player };
-                                                    }
-                                                    if (player.realm === 'workshop') {
-                                                        player_redis.set(room_id, JSON.stringify(room), function() {
-                                                            debug('PLAYER_REDIS SET room_id: '+room_id)
-                                                            enter_room(socket, room, player, player_redis, false);
-                                                        });
-                                                    } else {
-                                                        debug(JSON.stringify(room));
-                                                        redis_client.set(room_id, JSON.stringify(room), function() {
-                                                            debug('ROOM_REDIS SET room_id: '+room_id+room.npcs[0].hp)
-                                                            enter_room(socket, room, player, player_redis, false);
-                                                        });
-                                                    }
-                                                });
-                                            }
-                                        });
-                                    }
-                                });
-                            } else {
-                                debug('REDIS player MISS: ' + player.name);
-                                // new user
-                                room_id = room.realm + '/' + room.name;
-                                player.id = uuid.v4();
-                                player_redis.set(player.name, JSON.stringify(player));
-                                player.socket_id = socket.id;
-                                add_player_to_list(player);
-                                redis_client.get(room_id, function(err, data) {
-                                    if (data) {
-                                        debug('REDIS room HIT: ' + data);
-                                        room = JSON.parse(data);
-                                        initiate_socks(socket, player, room, player_redis);
-
-                                        // update room who list
-                                        if (typeof room.who !== 'undefined') {
-                                            room.who[player.id] = player;
-                                        } else {
-                                            room.who = { [player.id]: player };
-                                        }
-                                        room_id = room.realm + '/' + room.name;
-                                        if (player.realm === 'workshop') {
-                                            player_redis.set(room_id, JSON.stringify(room), function() {
-                                                enter_room(socket, room, player, player_redis,false);
-                                            });
-                                        } else {
-                                            redis_client.set(room_id, JSON.stringify(room), function() {
-                                                enter_room(socket, room, player, player_redis,false);
-                                            });
-                                        }
-                                    } else {
-                                        debug('REDIS room MISS: ' + room_id);
-                                        fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8', function(err, data) {
-                                            if (err) {
-                                                debug('could not load room: '+player.location +' : '+err);
-                                            } else {
-                                                debug(player.name+' connected');
-                                                room_id = player.realm + '/' + player.name;
-                                                eval(data);
-                                                initiate_socks(socket, player, room, player_redis);
-
-                                                // update room who list
-                                                if (typeof room.who !== 'undefined') {
-                                                    room.who[player.id] = player;
-                                                } else {
-                                                    room.who = { [player.id]: player };
-                                                }
-                                                room_id = room.realm + '/' + room.name;
-                                                if (player.realm ==='workshop') {
-                                                    player_redis.set(room_id, JSON.stringify(room), function() {
-                                                        enter_room(socket, room, player, player_redis, false);
-                                                    });
-                                                } else {
-                                                    redis_client.set(room_id, JSON.stringify(room), function() {
-                                                        debug('REDIS SET room_id: '+room_id)
-                                                        enter_room(socket, room, player, player_redis, false);
-                                                    });
-                                                }
-                                            }
-                                        });
-                                    }
-                                });
-                            }
-                        });
+    player_redis.select(5, function() {
+        socket.on('login', function(msg) {
+            args = JSON.parse(msg);
+            player.name = args.args[0];
+            if (typeof player.name !== 'undefined') {
+                player_redis.get(player.name, function(err, data) {
+                    if (data) {
+                        player = JSON.parse(data);
+                        player.socket_id = socket.id;
+                        player.max_hp = 100;
+                        debug(player.name+' ' +player.location);
+                        if (!player.id) {
+                            player.id = uuid.v4();
+                        }
+                        player_list[player.id] = player;
+                        load_and_enter_room(socket, player, player.location, false);
                     } else {
-                        socket.emit('update','login <username>');
+                        player.id = uuid.v4();
+                        player.socket_id = socket.id;
+                        player.max_hp = 100;
+                        player_list[player.id] = player;
+                        load_and_enter_room(socket, player, player.location, false);
                     }
                 });
-            });
+            } else {
+                socket.emit('update','login <username>');
+            }
+        });
+        socket.on('disconnect', function() {
+            if (typeof rooms[player.location] !== 'undefined') {
+                try {
+                    player_redis.set(player.name,JSON.stringify(player));
+                    room = rooms[player.location];
+                    room_id = room.realm + '/' + room.name;
+                    socket.broadcast.to(room_id).emit('update', player.name + ' disconnected.');
+                    delete room.who[player.id];
+                    delete player_list[player.id];
+                    if (room.realm === 'workshop') {
+                        player_redis.set(room_id, JSON.stringify(room));
+                    }
+                } catch(e) {
+                    debug('DISCONNECT: '+e);
+                }
+            }
+        });
+        socket.on('cmd', function(msg) {
+            if (player.id) {
+                debug(player.name+'('+player.id+')'+' '+msg);
+                args = JSON.parse(msg);
+                command = args.name;
+                room_id = player.location;
+                room = rooms[room_id];
+                if (typeof valid_commands[command] !== 'undefined') {
+                    if (command === 'say') {
+                        if (!player.gagged) {
+                            msg = args.rest;
+                            debug(player.name + ' said ' + msg);
+                            socket.emit('update', 'You said ' + msg);
+                            if (player.ninja_mode) {
+                                socket.broadcast.to(room_id).emit('update', 'A mysterious voice said ' + msg);
+                            } else {
+                                socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
+                            }
+                        }
+                    }
+                    if (command === 'lol') {
+                        if (!player.gagged) {
+                            socket.emit('update','You guffaw out loud.');
+                            if (player.ninja_mode) {
+                                socket.broadcast.to(room_id).emit('update', 'You hear a mysterious laughter nearby.');
+                            } else {
+                                socket.broadcast.to(room_id).emit('update', player.name + ' laughs.');
+                            }
+                        }
+                    }
+                    if (command === 'bow') {
+                        if (player.ninja_mode) {
+                            socket.emit('update','Noone sees you do that.');
+                        } else {
+                            socket.emit('update','You take a deep bow.');
+                            socket.broadcast.to(room_id).emit('update', player.name + ' takes a bow.');
+                        }
+                    } 
+                    if (command === 'clap') {
+                        socket.emit('update','CLAP! CLAP! CLAP!');
+                        if (player.ninja_mode) {
+                            socket.broadcast.to(room_id).emit('update', 'You hear a round of applause form seeemingly nowhere.');
+                        } else {
+                            socket.broadcast.to(room_id).emit('update', player.name + ' gives a round of applause');
+                        }
+                    } 
+                    if (command === 'wave') {
+                        socket.emit('update','You wave your hand.');
+                        if (player.ninja_mode) {
+                            socket.emit('update','Noone sees you do that.');
+                        } else {
+                            socket.broadcast.to(room_id).emit('update', player.name + ' waves their hand!');
+                        }
+                    } 
+                    if (command === 'emote') {
+                        if (!player.gagged) {
+                            msg = args.rest;
+                            socket.emit('update', 'You ' + msg);
+                            socket.broadcast.to(room_id).emit('update', player.name + ' ' + msg);
+                        }
+                    }
+                    if (command === 'look' || command === 'l') {
+                        do_look(socket, room, player, false);
+                        if (player.ninja_mode) {
+                            socket.emit('update', 'You are in ninja mode!  "vis" to disable');
+                        }
+                    }
+                    if ((command === 'Look' || command === 'L') && player.wizard) {
+                        do_look(socket, room, player, true);
+                        if (player.ninja_mode) {
+                            socket.emit('update', 'You are in ninja mode!  "vis" to disable');
+                        }
+                    }
+                    if (command === 'who' || command === 'W') {
+                        plist = get_player_list(player);
+                        socket.emit('update',plist.p_list);
+                        socket.emit('update',plist.total_count + ' players online.');
+                    }
+                    if (command === 'i' || command === 'inv' || command === 'inventory') {
+                        show_inventory2(socket, player);
+                    }
+                    if (command === 'vis' && player.wizard) {
+                        if (player.ninja_mode) {
+                            socket.emit('update','You suddenly appear in the room.  Everyone can see you!');
+                            player.ninja_mode = false;
+                            socket.broadcast.to(room_id).emit('update', player.name + ' suddenly appears!');
+                            player_redis.set(player.name, JSON.stringify(player));
+                            room.who[player.id].ninja_mode = false;
+                            if (room.realm == 'workshop') {
+                                player_redis.set(room_id, JSON.stringify(room));
+                            }
+                        }
+                    }
+                    if (command === 'invis'  && player.wizard)  {
+                        if (!player.ninja_mode) {
+                            socket.emit('update','You suddenly vanish.  Anyone watching is unsure of their eyes now.');
+                            player.ninja_mode = true;
+                            socket.broadcast.to(room_id).emit('update', player.name + ' disappears in front of your eyes!');
+                            player_redis.set(player.name, JSON.stringify(player));
+                            room.who[player.id].ninja_mode = true;
+                            if (room.realm == 'workshop') {
+                                player_redis.set(room_id, JSON.stringify(room));
+                            }
+                        }
+                    }
+                    if (command === 'goto' && player.wizard) {
+                        dest = '';
+                        if (typeof args.args[0] !== 'undefined') {
+                            target =  args.args[0];
+                            if (target === 'home') {
+                                dest = 'workshop/'+player.name+'s_workshop';
+                            } else {
+                                for (var i in player_list) {
+                                    if (target === player_list[i].name) {
+                                        dest = player_list[i].location;
+                                        break;
+                                    }    
+                                }
+                                if (dest.length < 1) {  // did not find a player target destination
+                                    dest = target;  // maybve it's a room loation, so let's see if it's loaded
+                                }
+                            }
+                            exit_msg ='disappear\'s in a puff of smoke!';
+                            move_player2(socket, player, dest, exit_msg, true);
+                        } else {
+                            socket.emit('update','goto usage: goto <player| [realm]/[room_name]>');
+                        }
+                    }
+                    if (command === 'tele' && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            target_player = null;
+                            for (var i in player_list) {
+                                if (player_list[i].name === target) {
+                                    target_player = player_list[i];
+                                    break;
+                                }
+                            }
+                            if (target_player) {
+                                if (typeof args.args[1] !== 'undefined') {
+                                    dest = args.args[1];
+                                } else {
+                                    dest = player.location;
+                                }
+                                exit_msg = 'disappear\'s in a puff of smoke!';
+                                target_socket = io.sockets.connected[target_player.socket_id];
+                                if (!move_player2(target_socket, target_player, dest, exit_msg, true)) {
+                                    socket.emit('update','Problem teleporting '+target+' to '+dest);
+                                }
+                            }
+                        } else {
+                            socket.emit('update','tele usage: tele <player> to your location.');
+                        }
+                    }
+                    if (command === 'go') {
+                        if (typeof args.args[0] !== 'undefined') {
+                            direction = args.args[0];
+                            if (direction in room.exits) {
+                                dest = room.exits[direction];
+                                exit_msg = 'goes '+direction;
+                                move_player2(socket, player, dest, exit_msg, false);
+                            } else {
+                                socket.emit('update','You cannot go that way.');
+                            }
+                        } else {
+                            debug('Client problem.  This is not supposed to happen');
+                        }
+                        
+                    }
+                    if ((command === 'wiz' || command === 'wizard') && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            found = false;
+                            for (var i in player_list) {
+                                if (player_list[i].name === target) {
+                                    found = true;
+                                    if (!player_list[i].wizard) {
+                                        player_list[i].wizard = true;
+                                        player_redis.set(player_list[i].name, JSON.stringify(player_list[i]));
+                                        socket.emit('update', target+' now has wizard powers.');
+                                        io.sockets.connected[player_list[i].socket_id].emit('update', player.name+' has granted you wizard powers!');
+                                    }
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                socket.emit('update', target+' not found.');
+                            }
+                        } else {
+                            socket.emit('update','wizard usage: <wiz|wizard> [target]');
+                        }
+                    }
+                    if ((command === 'dem' || command === 'demote') && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            found = false;
+                            for (var i in player_list) {
+                                if (player_list[i].name === target) {
+                                    found = true;
+                                    if (player_list[i].wizard) {
+                                        player_list[i].wizard = false;
+                                        player_redis.set(player_list[i].name, JSON.stringify(player_list[i]));
+                                        socket.emit('update', target+' now has NO wizard powers.');
+                                        io.sockets.connected[player_list[i].socket_id].emit('update', player.name+' has REMOVED your wizard powers!');
+                                    }
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                socket.emit('update', target+' not found.');
+                            }
+                        } else {
+                            socket.emit('update','demote usage: <dem|demote> [target]');
+                        }
+                    }
+                    if (command === 'spawn' && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            tokens = args.args[0].split('/', 2);
+                            realm = tokens[0];
+                            filename = tokens[1];
+                            try {
+                                file_data = fs.readFileSync('./realms/'+realm+'/objs/'+filename+'.js', 'utf8');
+                                player_redis.incr('objs', function(err, val) {
+                                    obj = JSON.parse(file_data);
+                                    obj.name += '#'+val;
+                                    obj.location = player.name+','+player.id;
+                                    str = 'Loaded '+args.args[0]+' name: '+obj.name+' alias: '+obj.alias;
+                                    socket.emit('update',str);
+                                    obj_list[obj.name] = obj;
+                                    if (typeof player.inv === 'undefined') {
+                                        player.inv = {};
+                                    }
+                                    player.inv[obj.name] = obj;
+                                    player_redis.set(player.name, JSON.stringify(player),function() {
+                                        show_inventory(socket, player_redis, player);
+                                    });
+                                });
+                            } catch(e) {
+                                socket.emit('update', 'Could not spawn '+args.args[0]);
+                                debug('SPAWN: '+e);
+                            }
+                        } else {
+                            socket.emit('update','spawn usage:  spawn <[realm]/[filename]> (exclude .js in [filename].');
+                        }
+                    }
+                    if (command === 'dest' && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            found = false;
+                            // search for npcs
+                            for (var i in room.npcs) {
+                                if (target === room.npcs[i].name) {
+                                    found = true;
+                                    if (!player.ninja_mode) {
+                                        socket.broadcast.to(room_id).emit('update',player.name+ ' conjures a miniature black hole.  The black hole swallows '+room.npcs[i].alias+ ' and disappears.');
+                                    } else {
+                                        socket.broadcast.to(room_id).emit('update','A miniature black hole appears out of nowhere.  The black hole swallows '+room.npcs[i].alias+ ' and disappears.');
+                                    }
+                                    socket.emit('update', 'You destroyed '+target);
+                                    room.npcs.splice(i,1);
+                                    break;
+                                }
+                            }
+                            if (!found && typeof room.inv !== 'undefined') { // check objects in the room
+                                for (var i in room.inv) {
+                                    if (i == target) {
+                                        delete obj_list[room.inv[i].name];
+                                        delete room.inv[i];
+                                        if (!player.ninja_mode) {
+                                            socket.broadcast.to(room_id).emit('update', player.name+ ' shoots a small jet of blue flame towards '+target+'.  '+target+' disappears in a puff of black smoke.  The acrid smell of smoke dissipates.');
+                                        } else {
+                                            socket.broadcast.to(room_id).emit('update', target+' starts to hover in the air and shakes violently.  Suddenly it disppears.');
+                                        }
+                                        socket.emit('update','You destroyed '+target);
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!found && typeof player.inv !== 'undefined') { // finally check the players inventory
+                                for (var i in player.inv) {
+                                    if (i === target) {
+                                        delete obj_list[player.inv[i].name];
+                                        delete player.inv[i];
+                                        socket.emit('update', 'You destroyed '+target);
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!found) {
+                                socket.emit('update','Could not find '+target);
+                            }
+                        } else {
+                            socket.emit('update','dest usage: dest <[obj.name]|npc.name]>');
+                        }
+                    }
+                    if (command === 'drop') {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            if (typeof player.inv[target] !== 'undefined') {
+                                new_obj = {};
+                                for (var key in player.inv[target]) {
+                                    new_obj[key] = player.inv[target][key];
+                                }
+                                if (typeof room.inv === 'undefined') {
+                                    room.inv = {};
+                                }
+                                room.inv[target] = new_obj;
+                                delete player.inv[target];
+                                if (typeof obj_list[target] !== 'undefined') {
+                                    obj_list[target].location = room.realm+'/'+room.name;
+                                } else {
+                                    obj_list[target] = new_obj;
+                                }
+                                if (player.ninja_mode) {
+                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', target+' appears out of nowhere.');
+                                } else {
+                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name +' dropped '+target);
+                                }
+                                socket.emit('update','You dropped '+target);
+                                player_redis.set(player.name, JSON.stringify(player));
+                                if (room.realm === 'workshop') {
+                                    player_redis.set(room_id, JSON.stringify(room));
+                                }
+                            } else {
+                                socket.emit('update', target+' not found.');
+                            }
+                        } else {
+                            socket.emit('update', 'drop usage: drop <[obj.name]> from your inventory.');
+                        }
+                    }
+                    if (command === 'get') {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            if (typeof room.inv[target] !== 'undefined') {
+                                if (room.inv[target].can_get) {
+                                    new_obj = {};
+                                    for (var keys in room.inv[target]) {
+                                        new_obj[keys] = room.inv[target][keys];
+                                    }
+                                    new_obj.location = player.name+','+player.id;
+                                    try {
+                                        delete room.inv[target];
+                                        if (typeof player.inv != 'undefined') {
+                                            player.inv[target] = new_obj;
+                                        } else {
+                                            player.inv = { [target]:new_obj };
+                                        }
+                                        socket.emit('update','You picked up '+target+' and placed it in your inventory');
+                                        if (player.ninja_mode) {
+                                            socket.broadcast.to(room.realm+'/'+room.name).emit('update', target +' appears to float in the air then disappears.');
+                                        } else {
+                                            socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' picked up '+target);
+                                        }
+                                        player_redis.set(player.name, JSON.stringify(player));
+                                        if (typeof obj_list[target] !== 'undefined') {
+                                            obj_list[target].location = player.name +','+player.id;
+                                        } else {
+                                            obj_list[target] = new_obj;
+                                        }
+                                        if (player.realm === 'workshop') {
+                                            player_redis.set(room.realm +'/'+ room.name, JSON.stringify(room));
+                                        }
+                                    } catch(e) {
+                                        debug('Couldn\'t delete for GET command.  Possible DUP');
+                                    }
+                                } else {
+                                    socket.emit('update','You cannot pick up '+target+'.');
+                                }
+
+                            }
+                        } else {
+                            socket.emit('update', 'get usage: get <[obj.name]> and place into your inventory.');
+                        }
+                    }
+                    if (command === 'res' && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            found = false;
+                            target = args.args[0];
+                            for (var i in player_list) {
+                                if (player_list[i].name === target) {
+                                    player_list[i].hp = player_list[i].max_hp;
+                                    target_socket = io.sockets.connected[player_list[i].socket_id];
+                                    if (player.ninja_mode) {
+                                        target_socket.emit('update', 'You have been restored to full healta,h');
+                                    } else {
+                                        target_socket.emit('update', player.name+ ' restored you to full healta,h');
+                                    }
+                                    found = true;
+                                    target_socket.emit('prompt', target + '('+player_list[i].hp+'/'+player_list[i].max_hp+'):'+player_list[i].location+'> ');
+                                    socket.emit('update', 'You restored '+target+' to full health.');
+                                    player_redis.set(target, JSON.stringify(player_list[i]));
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                socket.emit('update',target+' not found.');
+                            }
+                        } else {
+                            socket.emit('update','res usage: res <player|npc>');
+                        }
+                    }
+                    if (command === 'attack' || command === 'kill' ) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            if (typeof args.args[1] !== 'undefined') {
+                                target = args.args[1];
+                                target_type = args.args[0];
+                                if (target_type==='npc' ||  target_type==='player') {
+                                    if (target_type === 'npc') {  // PVE
+                                        if (typeof room.npcs !== 'undefined') {
+                                            for (var npc_name in room.npcs) {
+                                                if (room.npcs[npc_name].alias.toLowerCase() === target.toLowerCase()) {
+                                                    player_dam = 5;
+                                                    npc_dam = 10;
+                                                    alias = room.npcs[npc_name].alias;
+                                                    already_attacking = false;
+                                                    if (typeof room.npcs[npc_name].attackers === 'undefined') {
+                                                        room.npcs[npc_name].attackers = [];
+                                                    }
+                                                    for (var i in room.npcs[npc_name].attackers) {
+                                                        if (room.npcs[npc_name].attackers[i].id === player.id) {
+                                                            already_attacking = true;
+                                                        }
+                                                    }
+                                                    if (!already_attacking) {
+                                                        room.npcs[npc_name].attackers.push(player);
+                                                        room.npcs[npc_name].hp -= player_dam;
+                                                        socket.broadcast.to(room_id).emit('update',player.name+ ' attacks '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                        socket.emit('update','You attack '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                    } else {
+                                                        socket.emit('update', 'You are already attacking '+alias);
+                                                    }
+                                                    if (room.npcs[npc_name].attackers.length== 1) {
+                                                        if (typeof room.npcs[npc_name].timers === 'undefined') {
+                                                            room.npcs[npc_name].timers = {};
+                                                        }
+                                                        room.npcs[npc_name].timers['attack_timer'] = setInterval(function() {
+                                                            idx = Math.floor(Math.random() * room.npcs[npc_name].attackers.length);
+                                                            chosen_player = room.npcs[npc_name].attackers[idx];
+                                                            chosen_player.hp -= npc_dam;
+                                                            combat_socket = io.sockets.connected[chosen_player.socket_id];
+                                                            combat_socket.broadcast.to(room_id).emit('update', alias + ' hits ' + chosen_player.name.toUpperCase()+ ' for ' + npc_dam + ' hitpoints!');
+                                                            combat_socket.emit('update', alias + ' hits you for '+ npc_dam + ' hitpoints!');
+                                                            combat_socket.emit('prompt',chosen_player.name+' ('+chosen_player.hp+'/'+chosen_player.max_hp+'):'+room_id+'> ');
+                                                            if (chosen_player.hp<1) {
+                                                                room.npcs[npc_name].attackers.splice(idx,1);
+                                                                debug('num attacker '+room.npcs[npc_name].attackers.length);
+                                                                combat_socket.emit('update', 'You were slain by '+room.npcs[npc_name].alias);
+                                                                combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);
+                                                            }
+                                                            for (var x in room.npcs[npc_name].attackers) {
+                                                                room.npcs[npc_name].hp -= player_dam;
+                                                                attacker_name = room.npcs[npc_name].attackers[x].name;
+                                                                indy_socket = io.sockets.connected[room.npcs[npc_name].attackers[x].socket_id];
+                                                                indy_socket.broadcast.to(room_id).emit('update',attacker_name+ ' attacks '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                                indy_socket.emit('update','You attack '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                            }
+                                                            io.sockets.in(room_id).emit('update','--------------------------------');
+                                                            if (room.npcs[npc_name].attackers.length<1) {
+                                                                clearInterval(room.npcs[npc_name].timers['attack_timer']);
+                                                            }
+                                                            player_redis.set(chosen_player.name, JSON.stringify(chosen_player));
+                                                        }, attack_timeout);
+                                                    } 
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    } else {  // PK!
+                                    }
+                                } else {
+                                    socket.emit('update', '[attack|kill] usage: [attack|kill] [player|npc] <target>.');
+                                }
+                            }
+                            else {
+                                socket.emit('update', '[attack|kill] usage: [attack|kill] [player|npc] <target>.');
+                            }
+                        } else {
+                            socket.emit('update', '[attack|kill] usage: [attack|kill] [player|npc] <target>.');
+                        }
+                    }
+                    if (command === 'logout' || command ==='quit' || command ==='disconnect') {
+                        socket.emit('loopback', 'disconnect');
+                    }
+                    if (command === 'help') {
+                        str = 'You can:\n';
+                        for (var key in valid_commands) {
+                            if (player.wizard) {
+                                str+= key + '-' + valid_commands[key] + '\n';
+                            } else if (valid_commands[key].indexOf('Wizard only') < 0) {
+                                str+= key + '-' + valid_commands[key] + '\n';
+                            }
+                        }
+                        socket.emit('update',str);
+                    }
+                } else {
+                    socket.emit('update', 'Invalid command.');
+                }
+            }
         });
     });
 });
-/*
-function load_npcs(room, player_redis) {
-    debug('LOAD_NPCS');
-    // npcs have been loaded, get from redis and never from file.  this npc exists in the world
-    if (typeof room.npcs !== 'undefined') {
-    debug('LOAD_NPCS here');
-        rclient = redis_client;
-        if (room.realm === 'workshop') {
-            rclient = player_redis;
-        }
 
-        // referesh all npcs living in room
-        for (var npc in room.npcs) {
-            rclient.get(npc, function(err, data) {
-                if (data) {
-                    room.npcs[npc] = JSON.parse(data);
-                }
-            });
+function move_player2(socket, player, dest, exit_msg, magical) {
+    old_location = player.location;
+    socket.leave(old_location);
+    rv = false;
+    rv = load_and_enter_room(socket, player, dest, magical);
+    if (rv) {
+        delete rooms[old_location].who[player.id];
+        if (!player.ninja_mode) {
+            socket.broadcast.to(old_location).emit('update', player.name+' '+ exit_msg);
         }
+    }
+    return rv;
+}
+
+function load_and_enter_room(socket, player, dest, magical) {
+    debug('LOAD_AND_ENTER_ROOM: '+dest);
+    rv = false;
+    if (typeof rooms[dest] !== 'undefined') {
+        room = rooms[dest];
+        enter_room2(socket, player, room, magical);
+        rv = true;
     } else {
-        // this room has just been loaded, spawn the npcs
-        if (room.start_npcs != 'undefined') {
-            debug('LOAD_NPCS spawning NPCS');
-            room.npcs = {};
-            for (var npc_key in room.start_npcs) {
-                player_redis.incr('npc_num',function(err, npc_num) {
-                    debug('LOAD_NPCS readfile: '+room.start_npcs[npc_key]);
-                    data = fs.readFileSync('./realms/'+room.start_npcs[npc_key]+'.js', 'utf8');
-                    if (data) {
-                        try {
-                            debug('LOAD_NPCS data='+data);
-                            eval(data);
-                            npc.id = npc.name+'#'+npc_num;       
-                            debug('LOAD_NPCS npc.id='+npc.id);
-                            room.npcs[npc.id] = npc;
-                            rclient.set(npc.id, JSON.stringify(npc), function() {
-                                debug('LOAD_NPCS set '+npc.id);
-                            });
-                        } catch(e) {
-                            debug('Unable to parse '+room.start_npcs[npc_key]+'.js' + ' '+e);
+        area = dest.split('/',2);
+        realm = area[0];
+        room_name = area[1];
+        try {
+            eval(fs.readFileSync('./realms/'+realm+'/rooms/'+room_name+'.js','utf8'));
+            debug(room.name);
+            if (typeof room.start_npcs !== 'undefined') {
+                multi = player_redis.multi();
+                room.npcs = [];
+                for (var i in room.start_npcs) {
+                    eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                    multi.incr('npc_id', function(err, data) {
+                        npc.name = npc.name+'#'+data;
+                        npc.room = room.name;
+                        npc.realm = room.realm;
+                        if (typeof room.npcs === 'undefined') {
+                            room.npcs = {};
                         }
-                    } else {
-                        debug('LOAD_NPCS error readFile: ./realms/'+room.start_npcs[npc_key]+'.js');
-                    }
+                        room.npcs[npc.name] = npc;
+                    });
+                }
+                multi.exec(function() {
+                    rooms[room.realm+'/'+room.name] = room;
+                    enter_room2(socket, player, room, magical);
+                    rv = true;
                 });
+            } else {
+                rooms[room.realm+'/'+room.name] = room;
+                enter_room2(socket, player, room, magical);
+                rv = true;
+            }
+        } catch(e) {
+            str = 'Problem loading '+ dest + ' ' + e;
+            debug(str);
+            rv = false;
+        }
+    }
+    return rv;
+}
+
+function do_look(socket, room, player, hard_look) {
+    socket.emit('update', room.short);
+    socket.emit('update', room.long);
+    show_others_in_room(socket, room, player);
+    show_room_inventory2(socket, room , player);
+    show_npcs_in_room2(socket,room, player, hard_look);
+    show_exits(socket, room, player);
+}
+
+function show_inventory2(socket, player) {
+    str = 'Items in inventory:\n';
+    if (typeof player.inv !== 'undefined') {
+        for (var objs in player.inv) {
+            if (player.wizard && player.inv[objs].invisible) {
+                str += player.inv[objs].name +' (invisible)\n';
+            } else {
+                str += player.inv[objs].name+'\n';
             }
         }
     }
-}*/
+    socket.emit('update',str);
+}
 
 function debug(msg) {
     date = new Date();
     console.log(date.toString() + ': ' + msg);
 }
 
-function initiate_socks(socket,player,room, player_redis) {
-    socket.on('disconnect', function() {
-        room_id = room.realm + '/' + room.name;
-        rclient = redis_client;
-        if (player.realm === 'workshop') {
-            rclient = player_redis;
-        }
-        rclient.get(room_id, function(err, data) {
-            if (err) {
-                debug('DISCONNECT REDIS MISS! '+ err);
-            } else {
-                room = JSON.parse(data);
-                socket.broadcast.to(room_id).emit('update', player.name + ' disconnected.');
-                delete room.who[player.id];
-                remove_player_from_list(player);
-                if (room.realm === 'workshop') {
-                    player_redis.set(room_id, JSON.stringify(room));
-                } else {
-                    redis_client.set(room_id, JSON.stringify(room));
-                }
-                debug(player.name+' disconnected.');
+function get_npc(target, room) {
+    rv = null;
+    if (typeof room.npcs !== 'undefined') {
+        for (var i in room.npcs) {
+            if (room.npcs[i].name === target) {
+                rv = room.npcs[i];
+                break;
             }
-        });
-    });
+        }
+    }
+    return rv;
+}
+
+function initiate_socks(socket,player) {
+    /*
     socket.on('internal', function(msg) {
         debug('INTERNAL: '+msg);
         args = msg.split(' ');
         command = args[0];
         if (player.id && command === 'damage') {
-        try {
-            target = args[1];
-            new_hp = args[2];
-            if (typeof room.npcs !== 'undefined') {
-                found = false;
-                for (var i in room.npcs) {
-                    if (room.npcs[i].name === target) {
-                        rclient = redis_client;
-                        if (room.realm === 'workshop') {
-                            rclient = player_redis;
-                        }
-                        room.npcs[i].hp = new_hp;
-                        found = true;
-                        socket.emit('update',target + ' has been damaged for '+amt+' hitpoints.  '+room.npcs[i].hp+' remaining.');
-                        if (room.npcs[i].hp<1) {
-                            room.npcs[i].alias = 'Corpse of '+ room.npcs[i].alias;
-                        }
-                        rclient.set(room.realm+'/'+room.name, JSON.stringify(room));
-                        break;
+            try {
+                target = args[1];
+                new_hp = args[2];
+                npc = get_npc(target, room);
+                if (npc) {
+                    dam_amt = 10;
+                    rclient = redis_client;
+                    if (room.realm === 'workshop') {
+                        rclient = player_redis;
+                    }
+                    npc.hp = new_hp;
+                    socket.emit('update',target + ' has been damaged for '+amt+' hitpoints.  '+npc.hp+' remaining.');
+                    if (npc.hp<1) {
+                        npc.alias = 'Corpse of '+ npcs.alias;
+                        io.in(room.realm+'/'+room.name).emit('internal', 'stop_fighting '+ npc.name);
+                    } else {
+                        socket.emit('update', npc.alias + ' hits you for '+dam_amt + ' points of damage.');
+                        player.hp -= dam_amt;
+                    }
+                    rclient.set(room.realm+'/'+room.name, JSON.stringify(room));
+                }
+            } catch(e) {
+                debug('INERNAL: '+e);
+            }
+        }
+        if (player.id && command === 'attackers') {
+            try {
+                target = args[1];
+                attacker = args[2];
+                rclient = redis_client;
+                if (room.realm === 'workshop') {
+                    rclient = player_redis;
+                }
+                npc = get_npc(target,room);
+                if (npc) {
+                    if (typeof npc.attackers !== 'undefined') {
+                        npc.attackers.push(attacker);
+                    } else {
+                        npc.attackers = [attacker];
                     }
                 }
-                /*
-                if (found && idx>=0) {
-                    debug(room.npcs[idx].alias+':'+room.npcs[idx].hp);
-                    debug(room.npcs[idx].alias+':'+room.npcs[idx].hp);
-                } else {
-                    socket.emit('update',target + 'has NOT been damaged for '+amt+' hitpoints.  '+room.npcs[idx].hp+' remaining.');
-                }
-                */
+            } catch(e) {
+                debug(e);
             }
-        } catch(e) {
-            debug(e);
         }
+        if (command === 'stop_fighting' && player.id) {
+            try {
+                target = args[1];
+                npc = get_npc(target, room);
+                if (npc) {
+                    if (typeof npc.attack_timer !== 'undefined') {
+                        clearTimeout(npc.attack_timer);
+                    }
+                }
+            } catch(e) {
+                debug(e);
+            }
         }
     });
     socket.on('cmd', function(msg) {
@@ -373,380 +806,6 @@ function initiate_socks(socket,player,room, player_redis) {
             args = JSON.parse(msg);
             command = args.name;
             if (typeof valid_commands[command] !== 'undefined') {
-                if (command === 'say') {
-                    if (!player.gagged) {
-                        msg = args.rest;
-                        debug(player.name + ' said ' + msg);
-                        room_id = room.realm + '/' + room.name;
-                        socket.emit('update', 'You said ' + msg);
-                        if (player.ninja_mode) {
-                            socket.broadcast.to(room_id).emit('update', 'A mysterious voice said ' + msg);
-                        } else {
-                            socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
-                        }
-                    }
-                }
-                if (command === 'lol') {
-                    if (!player.gagged) {
-                        room_id = room.realm + '/' + room.name;
-                        socket.emit('update','You guffaw out loud.');
-                        if (player.ninja_mode) {
-                            socket.broadcast.to(room_id).emit('update', 'You hear a mysterious laughter nearby.');
-                        } else {
-                            socket.broadcast.to(room_id).emit('update', player.name + ' laughs.');
-                        }
-                    }
-                }
-                if (command === 'bow') {
-                    room_id = room.realm + '/' + room.name;
-                    socket.emit('update','You take a deep bow.');
-                        socket.emit('update','Noone sees you do that.');
-                    if (player.ninja_mode) {
-                    } else {
-                        socket.broadcast.to(room_id).emit('update', player.name + ' takes a bow.');
-                    }
-                } 
-                if (command === 'clap') {
-                    room_id = room.realm + '/' + room.name;
-                    socket.emit('update','CLAP! CLAP! CLAP!');
-                    if (player.ninja_mode) {
-                        socket.broadcast.to(room_id).emit('update', 'You hear a round of applause form seeemingly nowhere.');
-                    } else {
-                        socket.broadcast.to(room_id).emit('update', player.name + ' gives a round of applause');
-                    }
-                } 
-                if (command === 'wave') {
-                    room_id = room.realm + '/' + room.name;
-                    socket.emit('update','You wave your hand.');
-                    if (player.ninja_mode) {
-                        socket.emit('update','Noone sees you do that.');
-                    } else {
-                        socket.broadcast.to(room_id).emit('update', player.name + ' waves their hand!');
-                    }
-                } 
-                if (command === 'emote') {
-                    if (!player.gagged) {
-                        msg = args.rest;
-                        debug(player.name + ' ' + msg);
-                        socket.emit('update', 'You ' + msg);
-                        room_id = room.realm + '/' + room.name;
-                        socket.broadcast.to(room_id).emit('update', player.name + ' ' + msg);
-                    }
-                }
-                if (command === 'go') {
-                    try {
-                        direction = args.args[0];
-                        if (direction in room.exits) {
-                            new_room_id = room.realm+'/'+room.exits[direction];
-                            debug('go exit: '+new_room_id);
-                            old_room = room;
-                            redis_client.get(new_room_id, function(err, data) {
-                                if (data) {
-                                    debug('REDIS go room HIT: '+data);
-                                    room = JSON.parse(data);
-                                    update_room_who(redis_client, room, player, old_room,player_redis);
-                                    leave_room(socket, old_room, player,false); 
-                                    enter_room(socket, room, player, player_redis,  false);
-                                } else {
-                                    debug('REDIS go room MISS: '+new_room_id);
-                                    fs.readFile('./realms/'+room.realm+'/rooms/'+room.exits[direction]+'.js', 'utf8', function(err, data) {
-                                        if (err) {
-                                            debug('room load error - '+new_room_id+'.js');
-                                        } else {
-                                            eval(data);
-                                            redis_client.set(new_room_id, JSON.stringify(room));
-                                            update_room_who(redis_client, room, player, old_room,player_redis);
-                                            leave_room(socket, old_room, player, false);
-                                            enter_room(socket, room, player, player_redis, false);
-                                        }
-                                    });
-                                }
-                            });
-                        } else {
-                            socket.emit('update','You cannot go that way.');
-                        }
-                    } catch(e) {
-                    }
-                }
-                if (command === 'look' || command === 'l') {
-                    room_id = player.realm + '/' + player.room_name;
-                    rclient = redis_client;
-                    if (player.realm === 'workshop') {
-                        rclient = player_redis;
-                    }
-                    rclient.get(room_id, function(err, data) {
-                        if (err) {
-                            debug('Command LOOK get room from redis error: '+err);
-                        } else {
-                            room = JSON.parse(data);
-                            socket.emit('update', command);
-                            socket.emit('update', room.short);
-                            socket.emit('update', room.long);
-                            show_others_in_room(socket, room, player);
-                            show_room_inventory(socket, room ,player,player_redis);
-                            show_npcs_in_room(socket,room,player,player_redis, false, false);
-                            show_exits(socket, room);
-                            if (player.ninja_mode) {
-                                socket.emit('update', 'You are in ninja mode!  "vis" to disable');
-                            }
-                        }
-                    });
-                }
-                if ((command === 'Look' || command === 'L') && player.wizard) {
-                    room_id = player.realm + '/' + player.room_name;
-                    rclient = redis_client;
-                    if (player.realm === 'workshop') {
-                        rclient = player_redis;
-                    }
-                    rclient.get(room_id, function(err, data) {
-                        if (err) {
-                            debug('Command HARD_LOOK get room from redis error: '+err);
-                        } else {
-                            room = JSON.parse(data);
-                            socket.emit('update', command);
-                            socket.emit('update', room.short);
-                            socket.emit('update', room.long);
-                            show_others_in_room(socket, room, player);
-                            show_room_inventory(socket, room ,player,player_redis);
-                            show_npcs_in_room(socket,room,player,player_redis, false, true);
-                            show_exits(socket, room);
-                            if (player.ninja_mode) {
-                                socket.emit('update', 'You are in ninja mode!  "vis" to disable');
-                            }
-                        }
-                    });
-                }
-                if (command === 'goto'  && player.wizard) {
-                    if (args.args[0] === 'home') {
-                        destination = 'workshop/'+player.name+'s_workshop';  // workshops are persisten, jus tlike players so use player_client (persistent redis db)
-                        debug(player.name + ' GOTO ' + destination);
-                        player_redis.get(destination, function(err, data) {
-                            old_room = room;
-                            if (data) {
-                                debug('REDIS goto HIT: '+data);
-                                room = JSON.parse(data);
-                                update_room_who(redis_client, room, player, old_room,player_redis);
-                                leave_room(socket, old_room, player, true); 
-                                enter_room(socket, room, player, player_redis, true);
-                            } else {
-                               debug('REDIS goto MISS: ' + destination);
-                                fs.readFile('./realms/workshop/rooms/'+player.name+'s_workshop.js','utf8', function(err, data) {
-                                    if (err) {
-                                        debug('FS goto load error:' + err);
-                                    } else {
-                                        if (data) {
-                                            eval(data);
-                                            load_npcs(room,player_redis);
-                                            player_redis.set(destination, JSON.stringify(room));
-                                            update_room_who(redis_client, room, player, old_room,player_redis);
-                                            leave_room(socket, old_room, player, true); 
-                                            enter_room(socket, room, player, player_redis, true);
-                                        } 
-                                    }
-                                });
-                            }
-                        });
-                    } else {
-                        if (typeof args.args[0] !== 'undefined') {
-                            destination = args.args[0];
-                            debug(player.name + ' GOTO ' + destination);
-                            redis_client.get(destination, function(err, data) {
-                                old_room = room;
-                                if (data) {
-                                    debug('REDIS goto HIT: '+data);
-                                    room = JSON.parse(data);
-                                    update_room_who(redis_client, room, player, old_room, player_redis);
-                                    leave_room(socket, old_room, player, true); 
-                                    enter_room(socket, room, player, player_redis, true);
-                                } else {
-                                    parts = destination.split('/',2);
-                                    debug('REDIS goto MISS '+ destination + parts.length);
-                                    if (parts.length>1) {
-                                        realm = parts[0];
-                                        dest_room = parts[1];
-                                        debug('REDIS goto MISS: ' + realm + '/' + dest_room);
-                                        fs.readFile('./realms/'+realm+'/rooms/'+dest_room+'.js','utf8', function(err, data) {
-                                            if (err) {
-                                                debug('FS goto load error, maybe a player target? '+ err);
-                                            } else {
-                                                if (data) {
-                                                    eval(data);
-                                                    load_npcs(room,player_redis);
-                                                    if (realm == 'workshop') {
-                                                        player_redis.set(destination, JSON.stringify(room));
-                                                    } else {
-                                                        redis_client.set(destination, JSON.stringify(room));
-                                                    }
-                                                    update_room_who(redis_client, room, player, old_room, player_redis);
-                                                    leave_room(socket, old_room, player, true); 
-                                                    enter_room(socket, room, player, player_redis, true);
-
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-                if (command === 'invis'  && player.wizard)  {
-                    if (!player.ninja_mode) {
-                        socket.emit('update','You suddenly vanish.  Anyone watching is unsure of their eyes now.');
-                    }
-                    player.ninja_mode = true;
-                    room_id = room.realm + '/' + room.name;
-                    socket.broadcast.to(room_id).emit('update', player.name + ' disappears in front of your eyes!');
-                    player_redis.set(player.name, JSON.stringify(player));
-                    room.who[player.id].ninja_mode = true;
-                    if (room.realm == 'workshop') {
-                        player_redis.set(room_id, JSON.stringify(room));
-                    } else {
-                        redis_client.set(room_id, JSON.stringify(room));
-                    }
-                }
-                if (command === 'vis' && player.wizard) {
-                    if (player.ninja_mode) {
-                        socket.emit('update','You suddenly appear in the room.  Everyone can see you!');
-                    }
-                    player.ninja_mode = false;
-                    room_id = room.realm + '/' + room.name;
-                    socket.broadcast.to(room_id).emit('update', player.name + ' suddenly appears!');
-                    player_redis.set(player.name, JSON.stringify(player));
-                    room.who[player.id].ninja_mode = false;
-                    if (room.realm == 'workshop') {
-                        player_redis.set(room_id, JSON.stringify(room));
-                    } else {
-                        redis_client.set(room_id, JSON.stringify(room));
-                    }
-                }
-                if (command === 'who' || command === 'W') {
-                    plist = get_player_list(player);
-                    socket.emit('update',plist.p_list);
-                    socket.emit('update',plist.total_count + ' players online.');
-                }
-                if (command === 'tele'  && player.wizard) {
-                    if (typeof args.args[0] !== 'undefined') {
-                        target = args.args[0];
-                        player_redis.get(target, function(err, data) {
-                            if (err) {
-                                socket.emit('update', 'There is no player by that name.');
-                            } else {
-                                try {
-                                    target_player = JSON.parse(data);
-                                    live_target = player_list[target_player.id];
-                                    if (typeof live_target !== 'undefined') {
-                                        move_player(socket, redis_client, player_redis, live_target, player.realm, player.room_name, null, true);
-                                    } else {
-                                        socket.emit('update', 'There is no live player by that name.');
-                                    }
-                                } catch(e) {
-                                    socket.emit('update', 'There is no live player by that name.');
-                                }
-                            }
-                        });
-                    }
-                }
-                if (command === 'spawn' && player.wizard) {
-                    if (typeof args.args[0] !== 'undefined') {
-                        tokens = args.args[0].split('/',2);
-                        fs.readFile('./realms/'+tokens[0]+'/objs/'+tokens[1]+'.js', function(err, data) {
-                            if (data) {
-                                obj = JSON.parse(data);
-                                obj.str_func = 'a=function(socket,player) { socket.emit("update","'+obj.alias+' says ehllo " + player.name) }';
-                                obj.em = new em();
-                                obj.em.on('arrive', eval(obj.str_func));
-                                player_redis.incr('objs', function(err, obj_val) {
-                                    obj.name += '#'+obj_val;
-                                    obj.location = player.name+','+player.id;
-                                    str = 'Loaded '+args.args[0]+' name: '+obj.name+' alias: '+obj.alias;
-                                    debug(str);
-                                    socket.emit('update',str);
-                                    obj_list[obj.name] = obj;
-                                    if (typeof player.inv !== 'undefined') {
-                                        player.inv[obj.name] = obj;
-                                    } else {
-                                        player.inv = { [obj.name]:obj };
-                                    }
-                                    player_redis.set(player.name, JSON.stringify(player),function() {
-                                        show_inventory(socket, player_redis, player);
-                                    });
-                                    player.inv[obj.name].em.emit('event');
-                                });
-                            } else  {
-                                debug('Cannot load: '+args.args[0]);
-                                socket.emit('update','Cannot load: '+args.args[0]);
-                            }
-                        });
-                    }
-
-                }
-                if (command === 'dest' && player.wizard) {
-                    if (typeof args.args[0] !== 'undefined') {
-                        target = args.args[0];
-                        found = false;
-                        try {
-                            for (var i in room.npcs) {
-                                if (room.npcs[i].name === target) {
-                                    found = true;
-                                    room.npcs.splice(i,1);
-                                    break;
-                                }
-                            }
-                            if (found) {
-                                rclient = redis_client;
-                                if (room.realm === 'workshop') {
-                                    rclient = player_redis;
-                                }
-                                debug('DEST new room:'+ JSON.stringify(room));
-                                rclient.set(room.realm+'/'+room.name, JSON.stringify(room));
-                                socket.emit('update', 'You destroyed '+target);
-                            }
-                        } catch(e) {
-                            debug('DEST error('+target+'): '+ e);
-                        }
-                    }
-                }
-                if (command === 'i' || command ==='inventory' || command =='inv') {
-                    show_inventory(socket, player_redis, player);
-                }
-                if (command === 'drop') {
-                    target = args.args[0];
-                    if (typeof player.inv !== 'undefined') {
-                        if (typeof player.inv[target] !== 'undefined') {
-                            new_obj = {};
-                            for (var key in player.inv[target]) {
-                                new_obj[key] = player.inv[target][key];
-                            }
-                            if (typeof room.inv !== 'undefined') {
-                                new_obj.location = player.realm +'/' + player.room_name;
-                                room.inv[target] = new_obj;
-                            } else {
-                                room.inv = { [target]:new_obj };
-                            }
-                            if (typeof obj_list[target] !== 'undefined') {
-                                obj_list[target].location = player.realm+'/'+player.room_name;
-                            } else {
-                                obj_list[target] = new_obj;
-                            }
-                            if (player.ninja_mode) {
-                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', target+' appears out of nowhere.');
-                            } else {
-                                socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name +' dropped '+target);
-                            }
-                            socket.emit('update','You dropped a '+ target);
-                            delete player.inv[target];
-                            player_redis.set(player.name, JSON.stringify(player));
-                            if (player.realm === 'workshop') {
-                                player_redis.set(player.realm+'/'+player.room_name, JSON.stringify(room));
-                            } else {
-                                redis_client.set(player.realm+'/'+player.room_name, JSON.stringify(room));
-                            }
-                        }
-                    } else {
-                        socket.emit('update','You have nothing to drop.');
-                    }
-                }
                 if (command === 'attack' || command === 'kill') {
                     rclient = redis_client;
                     if (room.realm === 'workshop') {
@@ -772,12 +831,21 @@ function initiate_socks(socket,player,room, player_redis) {
                                             }
                                         }
                                         if (found) {
-                                            amt = 500;
+                                            amt = 100;
                                             new_hp = room.npcs[idx].hp - amt;
                                             debug(player.name+' ATTACKS target: '+target_name);
                                             socket.emit('update', 'You attack '+target_alias+' for '+amt+' hitpoints.  '+new_hp+' remaining.');
                                             socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' attacks ' + target_alias);
                                             io.in(room.realm+'/'+room.name).emit('internal', 'damage '+target_name+' '+new_hp);
+                                            io.in(room.realm+'/'+room.name).emit('internal', 'attackers '+target_name+' '+player.id);
+                                            room.npcs[idx].attack_timer = setInterval(function() {
+                                                    socket.emit('update', target_alias + ' hits ' + 'you for 10 points of damage.');
+                                                    player.hp -= 10;
+                                                    if (player.hp < 0) {
+                                                        socket.emit('update', 'You were slain by ' + target_alias);
+                                                        io.in(room.realm+'/'+room.name).emit('internal', 'stop_fighting '+target_name);
+                                                    }
+                                                    }, 2000);
                                         } else {
                                             debug(player.name+' ATTACKS target: '+target);
                                             socket.emit('update', 'Target not found: ' + args.args[0]+' '+args.args[1]+'.  Try '+command+' <player|npc> <player name|npc name>.');
@@ -789,260 +857,14 @@ function initiate_socks(socket,player,room, player_redis) {
                         socket.emit('update', 'Invalid target to attack.  Try attack <player|npc> <player name|npc name>');
                     }
                 }
-                if (command === 'get') {
-                    target = args.args[0];
-                    if (typeof room.inv[target] !== 'undefined') {
-                        if (room.inv[target].can_get) {
-                            new_obj = {};
-                            for (var keys in room.inv[target]) {
-                                new_obj[keys] = room.inv[target][keys];
-                            }
-                            new_obj.location = player.name+','+player.id;
-                            try {
-                                delete room.inv[target];
-                                if (typeof player.inv != 'undefined') {
-                                    player.inv[target] = new_obj;
-                                } else {
-                                    player.inv = { [target]:new_obj };
-                                }
-                                socket.emit('update','You picked up '+target+' and placed it in your inventory');
-                                if (player.ninja_mode) {
-                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', target +' appears to float in the air then disappears.');
-                                } else {
-                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' picked up '+target);
-                                }
-                                player_redis.set(player.name, JSON.stringify(player));
-                                if (typeof obj_list[target] !== 'undefined') {
-                                    obj_list[target].location = player.name +','+player.id;
-                                } else {
-                                    obj_list[target] = new_obj;
-                                }
-                                if (player.realm === 'workshop') {
-                                    player_redis.set(room.realm +'/'+ room.name, JSON.stringify(room));
-                                } else {
-                                    redis_client.set(room.realm +'/'+ room.name, JSON.stringify(room));
-                                }
-                            } catch(e) {
-                                debug('Couldn\'t delete for GET command.  Possible DUP');
-                            }
-                        } else {
-                            socket.emit('update','You cannot pick up '+target+'.');
-                        }
-                    } else {
-                        socket.emit('update','There is no '+ target+' here.');
-                    }
-                }
-                if (command === 'wizard' && player.wizard) {
-                    target = args.args[0];
-                    player_redis.get(target, function(err, data) {
-                        if (data) {
-                            target_player = JSON.parse(data);
-                            target_player.wizard = true;
-                            player_redis.set(target, JSON.stringify(target_player), function() {
-                                socket.emit('update','You have promoted:'+target);
-                                debug(player.name + 'granted '+target+' wizardship');
-                            });
-                        } else {
-                            socket.emit('update', target + ' has not logged in.');
-                            debug('WIZARD: Cannot find '+target);
-                        }
-                    });
-                }
-                if (command === 'demote' && player.wizard) {
-                    target = args.args[0];
-                    player_redis.get(target, function(err, data) {
-                        if (data) {
-                            target_player = JSON.parse(data);
-                            target_player.wizard = false;
-                            player_redis.set(target, JSON.stringify(target_player),function() {
-                                socket.emit('update','You have demoted '+target);
-                                debug(player.name + ' demoted '+ target);
-                            })
-                        } else {
-                            socket.emit('update', target + ' has not logged in.');
-                            debug('WIZARD: Cannot find '+target);
-                        }
-                    });
-                }
-                if (command === 'help') {
-                    str = 'You can:\n';
-                    for (var key in valid_commands) {
-                        if (player.wizard) {
-                            str+= key + '-' + valid_commands[key] + '\n';
-                        } else if (valid_commands[key].indexOf('Wizard only') < 0) {
-                            str+= key + '-' + valid_commands[key] + '\n';
-                        }
-                    }
-                    socket.emit('update',str);
-                }
             } else {
                 debug('invalid command' + JSON.stringify(msg));
                 socket.emit('update', 'Invalid command.');
             }
         }
     });
+    */
 };
-
-function spawn_it() {
-    console.log('spawn_it');
-}
-
-function show_inventory(socket, player_redis, player) {
-    str = 'Items in inventory:\n';
-    player_redis.get(player.name, function(err, data) {
-        if (data) {
-            the_player = JSON.parse(data);
-            for (var objs in the_player.inv) {
-                if (player.wizard && the_player.inv[objs].invisible) {
-                    str += player.inv[objs].name+' (invisibile)\n';
-                } else {
-                    str += player.inv[objs].name+'\n';
-                }
-            }
-            socket.emit('update',str);
-        } else {
-            debug('SHOW_INVENTORY REDIS MISS');
-        }
-    });
-}
-
-function show_room_inventory(socket, room, player, player_redis, some_event) {
-    str = 'Objects in the room: \n';
-    rclient = redis_client;
-    if (room.realm ==='workshop') {
-        rclient = player_redis;
-    }
-    rclient.get(room.realm + '/' + room.name, function(err, data) {
-        if (data) {
-            the_room = JSON.parse(data);
-            if (typeof the_room.inv !== 'undefined') {
-                for (key in the_room.inv) {
-                    the_room.inv[key].em = new em();
-                    if (player.wizard && the_room.inv[key].invisible) {
-                        str+= key +' (invisible)\n';
-                    } else {
-                        str+= key +'\n';
-                    }
-                    if (typeof the_room.inv[key].str_func !== 'undefined') {
-                        the_room.inv[key].em.on('arrive', eval(the_room.inv[key].str_func));
-                    }
-                }
-                socket.emit('update',str);
-                for (key in the_room.inv) {
-                    if (typeof the_room.inv[key].em !== 'undefined') {
-                        try {
-                            the_room.inv[key].em.emit(some_event,socket,player);
-                        } catch(e) {
-                            debug('SHOW_ROOM_INVENTORY em.emit error('+key+'): '+e);
-                        }
-                    }
-                }
-            }
-        } else {
-            debug('SHOW_ROOM_INVENTORY REDIS MISS: ' +room.realm +'/'+ room.name);
-        }
-    });
-}
-
-function move_player(socket, redis_client,player_redis, live_target, target_realm, target_room, target_thing,magical) {
-    try {
-    debug('MOVE PLAYER target: '+ target_realm+'/'+target_room);
-    rclient = redis_client;
-    if (target_realm === 'workshop') {
-        rclient = player_redis;
-    }
-    rclient.get(target_realm+'/'+target_room, function(err, data) {
-        if (data) {
-            debug('MOVE_PLAYER REDIS client HIT: '+data);
-            room = JSON.parse(data);
-            load_npcs(room,player_redis);
-            move_player_to_room(socket, redis_client, player_redis, live_target,room,magical);
-        } else {
-            debug('MOVE_PLAYER REDIS client MISS:'+ target_realm+'/'+target_room);
-            fs.readFile('./realms/'+target_realm+'/rooms/'+target_room+'.js', 'utf8', function(err, data) {
-                if (data) {
-                    eval(data);
-                    load_npcs(room,player_redis);
-                    move_player_to_room(socket, redis_client, player_redis, live_target,room, magical);
-                } else {
-                    socket.emit('update', './realms/'+target_realm+'/rooms/'+target_room+'.js does not exist.');
-                }
-            });
-        }
-    });
-    } catch(e) {
-        debug(e);
-    }
-}
-/*
-function spawn_player_login(socket,redis_client, player_redis, player,room) {
-    rclient = redis_client;
-    if (player.realm === 'workshop')  {
-        rclient = player_redis;
-    }
-    room_id = player.realm + '/' + player.room_name;
-    rclient.get(player.location,function(err, data) {
-        if (data) {
-            room = JSON.parse(data);
-            spawn_player_room(socket, rclient, player_redis, player, room);
-        } else {
-            fs.readFile('./realms/'+player.realm+'/rooms/'+player.room_name+'.js','utf8',function(err, data) {
-                if (err) {
-                    debug('SPAWN_PLAYER_LOGIN error reading room: ' + err);
-                } else {
-                    debug('SPAWN_PLAYER_LOGIN REDIS miss: ' + data);
-                    eval(data);
-                    spawn_player_room(socket, rclient, player_redis, player, room);
-                }
-            });
-        }
-    });
-}
-
-function spawn_player_room(socket, rclient, player_redis, player, room) {
-    if (room) {
-        if (typeof room.who !== 'undefined') {
-            room.who[player.id] = player;
-        } else {
-            room.who = { [player.id]: player };
-        }
-        debug('SPAWN_PLAYER_ROOM: '+ room.who[player.id].name);
-        socket.join(room_id);
-        if (!player.ninja_mode) {
-            socket.broadcast.to(room_id).emit('update', player.name + ' has arrived.');
-        }
-        socket.emit('update',room.short + '\n' + room.long);
-        socket.emit('prompt', player.name+':'+room_id+'> ');
-        show_others_in_room(socket, room, player);
-        if (player.ninja_mode) {
-            socket.emit('update', 'You are in ninja mode!  "vis" to disable');
-        }
-        update_player_location(room, player);
-        player_redis.set(player.name, JSON.stringify(player));
-        player_list[player.id] = player;
-        rclient.set(room_id, JSON.stringify(room), function(msg) {
-}); 
-    }   
-}
-*/
-
-function move_player_to_room(socket, redis_client, player_redis, live_target, room, magical) {
-    rclient = redis_client;
-    if (live_target.realm === 'workshop') {
-        rclient = player_redis;
-    }
-    rclient.get(live_target.location, function(err, data) {
-        if (data) {
-            old_room = JSON.parse(data);
-            target_socket = io.sockets.connected[live_target.socket_id];
-            update_room_who(redis_client, room, live_target, old_room, player_redis);
-            leave_room(target_socket,old_room, live_target,magical);
-            enter_room(target_socket, room, live_target, player_redis, magical);
-        } else {
-            debug('MOVE_PLAYER_TO_ROOM REDIS MISS!!!!! SHOULD  NOT HAPPEN!');
-        }
-    });
-}
 
 function get_player_list(player) {
     count = 0;
@@ -1074,18 +896,6 @@ function get_player_list(player) {
     return dat;
 }
 
-function add_player_to_list(player) {
-    player_list[player.id] = player;
-}
-
-function remove_player_from_list(player) {
-    try {
-        delete player_list[player.id];
-    } catch(e) {
-        debug('remove player error: '+e);
-    }
-}
-
 function show_others_in_room(socket, room, player) {
     in_room = '';
     count = 0;
@@ -1114,18 +924,6 @@ function show_others_in_room(socket, room, player) {
     }
 }
 
-function leave_room(socket, old_room, player, magical) {
-    debug('LEAVE_ROOM' + old_room.realm + '/' + old_room.name);
-    if (!player.ninja_mode) {
-        if (magical) {
-            socket.broadcast.to(old_room.realm+'/'+old_room.name).emit('update', player.name + ' disappears in a cloud of smoke.');
-        } else {
-            socket.broadcast.to(old_room.realm+'/'+old_room.name).emit('update', player.name + ' went '+ direction);
-        }
-    }
-    socket.leave(old_room.realm+'/'+old_room.name);
-}
-
 function show_npcs_in_room(socket, room, player, player_redis, process_listeners, hard_look) {
     npcs = '';
     if (typeof room.npcs !== 'undefined') {
@@ -1138,11 +936,6 @@ function show_npcs_in_room(socket, room, player, player_redis, process_listeners
             if (process_listeners) {
                 if (typeof room.npcs[i].events !== 'undefined') {
                     room.npcs[i].listener = new em();
-                    /*
-                    room.npcs[i].interval = setInterval(function() {
-                        socket.emit('update','asdasd');
-                    },10000);
-                    */
                     for (var ev in room.npcs[i].events) {
                         room.npcs[i].listener.on(ev, function(event_name,npc_obj,player) {
                             if (npc_obj.hp>0) {
@@ -1175,9 +968,44 @@ function show_npcs_in_room(socket, room, player, player_redis, process_listeners
     socket.emit('update', npcs);
 }
 
-function enter_room(socket, room, player, player_redis, magical) {
+function show_room_inventory2(socket, room, player) {
+    str = 'Objects in room:\n';
+    if (typeof room.inv !== 'undefined') {
+        for (var key in room.inv) {
+            if (player.wizard && room.inv[key].invisible) {
+                str+= key +' (invisible)\n';
+            } else {
+                str+= key +'\n';
+            }
+        }
+    }
+    socket.emit('update', str);
+}
+
+function show_npcs_in_room2(socket, room, player, hard_look) {
+    str = '';
+    if (typeof room.npcs !== 'undefined') {
+        for (var i in room.npcs) {
+            if (hard_look) {
+                str += room.npcs[i].name+ ' is here.';
+            } else {
+                str += room.npcs[i].alias + ' is here.';
+            }
+        }
+    }
+    if (str.length > 0) {
+        socket.emit('update', str);
+    }
+}
+
+function enter_room2(socket, player, room, magical) {
+    // update room who list
+    if (typeof room.who === 'undefined') {
+        room.who = {};
+    }
+    room.who[player.id] = player;
+
     room_id = room.realm+'/'+room.name;
-    debug('enter_room: '+room_id);
     socket.join(room_id);
     if (!player.ninja_mode) {
         if (!magical) {
@@ -1190,96 +1018,16 @@ function enter_room(socket, room, player, player_redis, magical) {
         socket.emit('update','You\'ve just been teleported!');
     }
 
-    socket.emit('update', room.short);
-    socket.emit('update', room.long);
-    socket.emit('prompt', player.name+':'+room_id+'> ');
-    show_npcs_in_room(socket,room,player,player_redis, true, false);
-    show_others_in_room(socket, room, player);
-    show_room_inventory(socket, room, player,player_redis,'arrive');
-    show_exits(socket, room);
-
+    do_look(socket, room, player, false);
     if (player.ninja_mode) {
         socket.emit('update', 'You are in ninja mode!  "vis" to disable');
     }
-    player = update_player_location(room, player);
-    player_redis.set(player.name, JSON.stringify(player));
-    player_list[player.id] = player;
-    if (typeof room.npcs !== 'undefined') {
-        for (var i in room.npcs) {
-            room.npcs[i].listener.emit('arrive', 'arrive', room.npcs[i], player);
-        }
-    }
-}
-
-function update_player_location(room, player) {
+    socket.emit('prompt', player.name+' ('+player.hp+'/'+player.max_hp+'):'+room_id+'> ');
     player.location = room.realm+'/'+room.name;
-    player.realm = room.realm;
-    player.room_name = room.name;
-    return player;
+    player_redis.set(player.name, JSON.stringify(player));
 }
 
-function update_room_who(redis_client, room, player, old_room,player_redis) {
-    if (room && typeof room.who !== 'undefined') {
-        room.who[player.id] = player;
-    } else {
-        room.who = { [player.id]: player };
-    }
-    room_id = room.realm + '/' + room.name;
-    debug('update_room '+room_id);
-    if (room.realm == 'workshop') {
-        player_redis.set(room_id, JSON.stringify(room));
-    } else {
-        redis_client.set(room_id, JSON.stringify(room));
-    }
-    if (old_room) {
-        room_id = old_room.realm +'/' + old_room.name;
-        try {
-            delete old_room.who[player.id];
-            redis_client.set(room_id, JSON.stringify(old_room));
-        } catch(e) {
-            debug('error deleting '+player.name+' from '+room_id);
-        }
-    }
-}
-
-/*
-function update_room_list(room, player, old_room) {
-    for (var keys in room_list[room.realm]) {
-        console.log('bkey='+ keys);
-    }
-    if (typeof room_list[room.realm] !== 'undefined') {
-        if (typeof room_list[room.realm][room.name] !== 'undefined') {
-            room_list[room.realm][room.name][player.name] = 1;
-        } else {
-            room_list[room.realm][room.name] = {
-                [player.name]: 1
-            }
-        }
-    } else {
-        room_list = {
-            [room.realm]: {
-                [room.name]: {
-                    [player.name]: 1
-                }
-            }
-        };
-    }
-    for (var keys in room_list[room.realm]) {
-        console.log('key='+ keys);
-    }
-    try {
-        if (old_room) {
-            console.log('to_delete: '+ old_room.realm+','+old_room.name+','+player.name);
-            console.log('to delete: '+room_list[old_room.realm][old_room.name][player.name]);
-            delete room_list[old_room.realm][old_room.name][player.name];
-        }
-    } catch(e) {
-        console.log('could not delete from room list');
-    }
-}
-*/
-
-function show_exits(socket, room) {
+function show_exits(socket, room, player) {
     exits = '';
     for (var key in room.exits) {
         exits += key+',';
@@ -1287,5 +1035,3 @@ function show_exits(socket, room) {
     exits = exits.slice(0,-1);  // remove last comma
     socket.emit('update', 'You can go: ' + exits);
 }
-
-http.listen(2500);
