@@ -92,7 +92,6 @@ io.on('connection', function(socket) {
                         player = JSON.parse(data);
                         player.socket_id = socket.id;
                         player.max_hp = 100;
-                        debug(player.name+' ' +player.location);
                         if (!player.id) {
                             player.id = uuid.v4();
                         }
@@ -574,7 +573,6 @@ io.on('connection', function(socket) {
                                                             combat_socket.emit('prompt',chosen_player.name+' ('+chosen_player.hp+'/'+chosen_player.max_hp+'):'+room_id+'> ');
                                                             if (chosen_player.hp<1) {
                                                                 room.npcs[npc_name].attackers.splice(idx,1);
-                                                                debug('num attacker '+room.npcs[npc_name].attackers.length);
                                                                 combat_socket.emit('update', 'You were slain by '+room.npcs[npc_name].alias);
                                                                 combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);
                                                             }
@@ -646,7 +644,6 @@ function move_player2(socket, player, dest, exit_msg, magical) {
 }
 
 function load_and_enter_room(socket, player, dest, magical) {
-    debug('LOAD_AND_ENTER_ROOM: '+dest);
     rv = false;
     if (typeof rooms[dest] !== 'undefined') {
         room = rooms[dest];
@@ -658,7 +655,6 @@ function load_and_enter_room(socket, player, dest, magical) {
         room_name = area[1];
         try {
             eval(fs.readFileSync('./realms/'+realm+'/rooms/'+room_name+'.js','utf8'));
-            debug(room.name);
             if (typeof room.start_npcs !== 'undefined') {
                 multi = player_redis.multi();
                 room.npcs = [];
