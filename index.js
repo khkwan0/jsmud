@@ -95,8 +95,13 @@ io.on('connection', function(socket) {
                         if (!player.id) {
                             player.id = uuid.v4();
                         }
-                        player_list[player.id] = player;
-                        load_and_enter_room(socket, player, player.location, false);
+                        if (typeof player_list[player.id] !== 'undefined') {
+                            socket.emit('update', player.name + ' is already connected.');
+                            socket.emit('loopback','disconnect');
+                        } else {
+                            player_list[player.id] = player;
+                            load_and_enter_room(socket, player, player.location, false);
+                        }
                     } else {
                         player.id = uuid.v4();
                         player.socket_id = socket.id;
@@ -104,6 +109,7 @@ io.on('connection', function(socket) {
                         player_list[player.id] = player;
                         load_and_enter_room(socket, player, player.location, false);
                     }
+                    debug(player.name + ' connected.');
                 });
             } else {
                 socket.emit('update','login <username>');
@@ -360,11 +366,12 @@ io.on('connection', function(socket) {
                                     }
                                     player.inv[obj.name] = obj;
                                     player_redis.set(player.name, JSON.stringify(player),function() {
-                                        show_inventory(socket, player_redis, player);
+                                        show_inventory2(socket, player);
                                     });
                                 });
                             } catch(e) {
                                 socket.emit('update', 'Could not spawn '+args.args[0]);
+                                socket.emit('update', 'try spawn <realm>/<object>: for example "spawn main/knife"');
                                 debug('SPAWN: '+e);
                             }
                         } else {
