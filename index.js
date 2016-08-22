@@ -512,7 +512,7 @@ io.on('connection', function(socket) {
                                     player_list[i].hp = player_list[i].max_hp;
                                     target_socket = io.sockets.connected[player_list[i].socket_id];
                                     if (player.ninja_mode) {
-                                        target_socket.emit('update', 'You have been restored to full healta,h');
+                                        target_socket.emit('update', 'You have been restored to full health');
                                     } else {
                                         target_socket.emit('update', player.name+ ' restored you to full healta,h');
                                     }
@@ -671,6 +671,24 @@ function load_and_enter_room(socket, player, dest, magical) {
                         if (typeof room.npcs === 'undefined') {
                             room.npcs = {};
                         }
+                        // initialize events
+                        if (typeof npc.events !== 'undefined') {
+                            npc.listener = new em();
+                            for (var event_name in npc.events) {
+                                npc.listener.on(event_name, function(npc_obj, player) {
+                                    if (npc_obj.hp > 0) {
+                                        var num_actions = npc_obj.events[event_name].actions.length;
+                                        idx = Math.floor(Math.random() * num_actions);
+                                        to_emote = npc_obj.events[event_name].actions[idx].replace('%player%', player.name);
+                                        bcast_emote = to_emote.replace('%you%', player.name);
+                                        you_emote = to_emote.replace('%you%', 'you');
+                                        player_socket = io.sockets.connected[player.socket_id];
+                                        player_socket.emit('update', npc_obj.alias + ' ' + you_emote);
+                                        player_socket.broadcast.to(player.location).emit('update', npc_obj.alias+ ' ' + bcast_emote);
+                                    }
+                                });
+                            }
+                        }
                         room.npcs[npc.name] = npc;
                     });
                 }
@@ -792,50 +810,6 @@ function show_others_in_room(socket, room, player) {
     }
 }
 
-function show_npcs_in_room(socket, room, player, player_redis, process_listeners, hard_look) {
-    npcs = '';
-    if (typeof room.npcs !== 'undefined') {
-        for (var i in room.npcs) {
-            if (hard_look) {
-                npcs += room.npcs[i].name + ' is here.\n';
-            } else {
-                npcs += room.npcs[i].alias + ' is here.\n';
-            }
-            if (process_listeners) {
-                if (typeof room.npcs[i].events !== 'undefined') {
-                    room.npcs[i].listener = new em();
-                    for (var ev in room.npcs[i].events) {
-                        room.npcs[i].listener.on(ev, function(event_name,npc_obj,player) {
-                            if (npc_obj.hp>0) {
-                                var num_actions = npc_obj.events[event_name].actions.length;
-                                if (num_actions == 1) {
-                                    opt = 0;
-                                    to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
-                                    bcast_emote = to_emote.replace('%you%', player.name);
-                                    you_emote = to_emote.replace('%you%', 'you');
-                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias + ' ' + you_emote);
-                                    socket.emit('update', npc_obj.alias+ ' '+ to_emote);
-                                } else {
-                                    min = 0;
-                                    max = num_actions-1;
-                                    opt = Math.floor(Math.random() * (max - min + 1)) + min;
-                                    debug('npc option: '+opt);
-                                    to_emote = npc_obj.events[event_name].actions[opt].replace('%player%', player.name);
-                                    bcast_emote = to_emote.replace('%you%', player.name);
-                                    you_emote = to_emote.replace('%you%', 'you');
-                                    socket.emit('update', npc_obj.alias + ' ' + you_emote);
-                                    socket.broadcast.to(room.realm+'/'+room.name).emit('update', npc_obj.alias+ ' ' + bcast_emote);
-                                }
-                            }
-                        });
-                    }
-                }
-            }
-        }
-    }
-    socket.emit('update', npcs);
-}
-
 function show_room_inventory2(socket, room, player) {
     str = 'Objects in room:\n';
     if (typeof room.inv !== 'undefined') {
@@ -892,6 +866,12 @@ function enter_room2(socket, player, room, magical) {
     }
     socket.emit('prompt', player.name+' ('+player.hp+'/'+player.max_hp+'):'+room_id+'> ');
     player.location = room.realm+'/'+room.name;
+    // sned arrive signal to all npcs
+    if (typeof room.npcs !== 'undefined') {
+        for (var i in room.npcs) {
+            room.npcs[i].listener.emit('arrive', room.npcs[i], player);
+        }
+    }
     player_redis.set(player.name, JSON.stringify(player));
 }
 
