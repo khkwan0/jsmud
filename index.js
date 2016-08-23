@@ -49,6 +49,7 @@ var valid_commands = {
     ,'kill': 'kill <player|npc> <player name|npc name>: same as attack.'
     ,'slay': '(Wizard only) slay <player|npc> : instantly kill a player or npc (kill - not destroy)'
     ,'res': '(Wizard only) res <player|npc> : restore health back to max_hp.'
+    ,'set': '(Wizard only) (SUPER WIZARD only): set server side variables.  dangerous!'
     ,'logout': 'save and quit'
     ,'disconnect': 'save and quit'
     ,'quit': 'save and quit'
@@ -76,6 +77,7 @@ io.on('connection', function(socket) {
         "hp":100,
         "max_hp": 100,
         "wizard": false,
+        "super_wizard": false,
         "realm":"main",
         "room_name":"outside_ted",
         "location": "main/outside_ted",
@@ -601,41 +603,49 @@ io.on('connection', function(socket) {
                                                         room.npcs[npc_name].hp -= player_dam;
                                                         socket.broadcast.to(room_id).emit('update',player.name+ ' attacks '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
                                                         socket.emit('update','You attack '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                        if (room.npcs[npc_name].attackers.length== 1) {
+                                                            if (typeof room.npcs[npc_name].timers === 'undefined') {
+                                                                room.npcs[npc_name].timers = {};
+                                                            }
+                                                            if (typeof room.npcs[npc_name].timers['attack_timers'] === 'undefined') {
+                                                                room.npcs[npc_name].timers['attack_timer'] = setInterval(function() {
+                                                                    try {
+                                                                    idx = Math.floor(Math.random() * room.npcs[npc_name].attackers.length);
+                                                                    chosen_player = room.npcs[npc_name].attackers[idx];
+                                                                    chosen_player.hp -= npc_dam;
+                                                                    combat_socket = io.sockets.connected[chosen_player.socket_id];
+                                                                    combat_socket.broadcast.to(room_id).emit('update', alias + ' hits ' + chosen_player.name.toUpperCase()+ ' for ' + npc_dam + ' hitpoints!');
+                                                                    combat_socket.emit('update', alias + ' hits you for '+ npc_dam + ' hitpoints!');
+                                                                    combat_socket.emit('prompt',chosen_player.name+' ('+chosen_player.hp+'/'+chosen_player.max_hp+'):'+room_id+'> ');
+                                                                    if (chosen_player.hp<1) {
+                                                                        room.npcs[npc_name].attackers.splice(idx,1);
+                                                                        debug(room.npcs[npc_name].attackers.length);
+                                                                        combat_socket.emit('update', 'You were slain by '+room.npcs[npc_name].alias);
+                                                                        combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);
+                                                                        ghost_player(chosen_player);
+                                                                    }
+                                                                    for (var x in room.npcs[npc_name].attackers) {
+                                                                        room.npcs[npc_name].hp -= player_dam;
+                                                                        attacker_name = room.npcs[npc_name].attackers[x].name;
+                                                                        indy_socket = io.sockets.connected[room.npcs[npc_name].attackers[x].socket_id];
+                                                                        indy_socket.broadcast.to(room_id).emit('update',attacker_name+ ' attacks '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                                        indy_socket.emit('update','You attack '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
+                                                                    }
+                                                                    io.sockets.in(room_id).emit('update','--------------------------------');
+                                                                    if (room.npcs[npc_name].attackers.length<1) {
+                                                                        clearInterval(room.npcs[npc_name].timers['attack_timer']);
+                                                                    }
+                                                                    player_redis.set(chosen_player.name, JSON.stringify(chosen_player));
+                                                                    } catch(e) {
+                                                                        debug(e);
+                                                                    }
+                                                                }, attack_timeout);
+                                                            }
+                                                        }
                                                     } else {
                                                         socket.emit('update', 'You are already attacking '+alias);
                                                     }
-                                                    if (room.npcs[npc_name].attackers.length== 1) {
-                                                        if (typeof room.npcs[npc_name].timers === 'undefined') {
-                                                            room.npcs[npc_name].timers = {};
-                                                        }
-                                                        room.npcs[npc_name].timers['attack_timer'] = setInterval(function() {
-                                                            idx = Math.floor(Math.random() * room.npcs[npc_name].attackers.length);
-                                                            chosen_player = room.npcs[npc_name].attackers[idx];
-                                                            chosen_player.hp -= npc_dam;
-                                                            combat_socket = io.sockets.connected[chosen_player.socket_id];
-                                                            combat_socket.broadcast.to(room_id).emit('update', alias + ' hits ' + chosen_player.name.toUpperCase()+ ' for ' + npc_dam + ' hitpoints!');
-                                                            combat_socket.emit('update', alias + ' hits you for '+ npc_dam + ' hitpoints!');
-                                                            combat_socket.emit('prompt',chosen_player.name+' ('+chosen_player.hp+'/'+chosen_player.max_hp+'):'+room_id+'> ');
-                                                            if (chosen_player.hp<1) {
-                                                                room.npcs[npc_name].attackers.splice(idx,1);
-                                                                combat_socket.emit('update', 'You were slain by '+room.npcs[npc_name].alias);
-                                                                combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);
-                                                                ghost_player(chosen_player);
-                                                            }
-                                                            for (var x in room.npcs[npc_name].attackers) {
-                                                                room.npcs[npc_name].hp -= player_dam;
-                                                                attacker_name = room.npcs[npc_name].attackers[x].name;
-                                                                indy_socket = io.sockets.connected[room.npcs[npc_name].attackers[x].socket_id];
-                                                                indy_socket.broadcast.to(room_id).emit('update',attacker_name+ ' attacks '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
-                                                                indy_socket.emit('update','You attack '+alias+' for '+player_dam+' hitpoints. ('+room.npcs[npc_name].hp+'/'+room.npcs[npc_name].max_hp+')');
-                                                            }
-                                                            io.sockets.in(room_id).emit('update','--------------------------------');
-                                                            if (room.npcs[npc_name].attackers.length<1) {
-                                                                clearInterval(room.npcs[npc_name].timers['attack_timer']);
-                                                            }
-                                                            player_redis.set(chosen_player.name, JSON.stringify(chosen_player));
-                                                        }, attack_timeout);
-                                                    } 
+
                                                     break;
                                                 }
                                             }
@@ -683,6 +693,11 @@ io.on('connection', function(socket) {
                     }
                     if (command === 'logout' || command ==='quit' || command ==='disconnect') {
                         socket.emit('loopback', 'disconnect');
+                    }
+                    if (command === 'set' && player.super_wizard) {
+                        rcon = args.rest;
+                        socket.emit('update', args.rest);
+                        eval(args.rest);
                     }
                     if (command === 'help') {
                         str = 'You can:\n';
@@ -833,9 +848,11 @@ function show_inventory2(socket, player) {
     if (typeof player.inv !== 'undefined') {
         for (var objs in player.inv) {
             if (player.wizard && player.inv[objs].invisible) {
-                str += player.inv[objs].name +' (invisible)\n';
+                str += player.inv[objs].alias+'('+player.inv[objs].name+') '+ player.inv[objs].origin + ' (invisible)\n';
+            } else if (player.wizard) {
+                str += player.inv[objs].alias+'('+player.inv[objs].name+') '+ player.inv[objs].origin + '\n';
             } else {
-                str += player.inv[objs].name+'\n';
+                str += player.inv[objs].alias+'('+player.inv[objs].name+')\n';
             }
         }
     }
@@ -923,17 +940,23 @@ function show_others_in_room(socket, room, player) {
 }
 
 function show_room_inventory2(socket, room, player) {
-    str = 'Objects in room:\n';
-    if (typeof room.inv !== 'undefined') {
-        for (var key in room.inv) {
-            if (player.wizard && room.inv[key].invisible) {
-                str+=  room.inv[key].alias+ '('+key+') (invisible)\n';
-            } else {
-                str+=  room.inv[key].alias+ '('+key+')\n';
+    try {
+        str = 'Objects in room:\n';
+        if (typeof room.inv !== 'undefined') {
+            for (var key in room.inv) {
+                if (player.wizard && room.inv[key].invisible) {
+                    str+=  room.inv[key].alias+ '('+key+') '+ room.inv[key].origin+ ' (invisible)\n';
+                } else if (player.wizard) {
+                    str+=  room.inv[key].alias+ '('+key+') '+ room.inv[key].origin+ '\n';
+                } else {
+                    str+=  room.inv[key].alias+ '('+key+')\n';
+                }
             }
         }
+        socket.emit('update', str);
+    } catch(e) {
+        debug('SHOW_ROOM_INVENTORY: '+ e);
     }
-    socket.emit('update', str);
 }
 
 function show_npcs_in_room2(socket, room, player, hard_look) {
