@@ -47,7 +47,8 @@ var valid_commands = {
     ,'rholster': 'Put away an object or weapon from your RIGHT hand into your bag.'
     ,'attack': 'attack <player|npc> <player name|npc name>.'
     ,'kill': 'kill <player|npc> <player name|npc name>: same as attack.'
-    ,'res': 'res <player|npc> : restore health back to max_hp.'
+    ,'slay': '(Wizard only) slay <player|npc> : instantly kill a player or npc (kill - not destroy)'
+    ,'res': '(Wizard only) res <player|npc> : restore health back to max_hp.'
     ,'logout': 'save and quit'
     ,'disconnect': 'save and quit'
     ,'quit': 'save and quit'
@@ -79,6 +80,7 @@ io.on('connection', function(socket) {
         "room_name":"outside_ted",
         "location": "main/outside_ted",
         "ninja_mode": false,
+        "ghost": false,
         "inv": {}
     }
 
@@ -87,15 +89,13 @@ io.on('connection', function(socket) {
             // check if already connected
             for (var i in player_list) {
                 if (player_list[i].socket_id === socket.id) {
-                    debug('Same socket login. '+ player_list[i].name);
                     player_redis.set(player_list[i].name, JSON.stringify(player_list[i]));
                     if (!player_list[i].ninja_mode) {
                         socket.broadcast.to(player_list[i].location).emit('update', player_list[i].name + ' disconnected.');
                         try {
-                        debug(player_list[i].location);
-                        delete rooms[player_list[i].location].who[player_list[i].id];
+                            delete rooms[player_list[i].location].who[player_list[i].id];
                         } catch(e) {
-                        debug(e);
+                            debug(e);
                         }
                     }
                     delete player_list[i];
@@ -112,12 +112,15 @@ io.on('connection', function(socket) {
                         if (!player.id) {
                             player.id = uuid.v4();
                         }
+                        if (!player.alias) {
+                            player.alias = player.name;
+                        }
                         player_list[player.id] = player;
                        load_and_enter_room(socket, player, player.location, false);
                     } else {
                         // initialize new player
                         player.id = uuid.v4();
-                        player.alias = null;
+                        player.alias = player.name;
                         player.gagged = false;
                         player.level = 1;
                         player.ghost = false;
@@ -129,6 +132,7 @@ io.on('connection', function(socket) {
                         player.room_name = 'outside_ted';
                         player.location = 'main/outside_ted';
                         player.ninja_mode = false;
+                        player.ghost = false;
                         player.inv = {};
 
 
@@ -173,6 +177,8 @@ io.on('connection', function(socket) {
                             socket.emit('update', 'You said ' + msg);
                             if (player.ninja_mode) {
                                 socket.broadcast.to(room_id).emit('update', 'A mysterious voice said ' + msg);
+                            } else if (player.ghost) {
+                                socket.broadcast.to(room_id).emit('update', 'You hear the wail of '+ player.alias);
                             } else {
                                 socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
                             }
@@ -542,11 +548,13 @@ io.on('connection', function(socket) {
                             for (var i in player_list) {
                                 if (player_list[i].name === target) {
                                     player_list[i].hp = player_list[i].max_hp;
+                                    player_list[i].alias = player_list[i].name;
+                                    player_list[i].ghost = false;
                                     target_socket = io.sockets.connected[player_list[i].socket_id];
                                     if (player.ninja_mode) {
-                                        target_socket.emit('update', 'You have been restored to full health');
+                                        target_socket.emit('update', 'You have been restored to full health.  You LIVE!.');
                                     } else {
-                                        target_socket.emit('update', player.name+ ' restored you to full healta,h');
+                                        target_socket.emit('update', player.name+ ' restored you to full health.  You LIVE!');
                                     }
                                     found = true;
                                     target_socket.emit('prompt', target + '('+player_list[i].hp+'/'+player_list[i].max_hp+'):'+player_list[i].location+'> ');
@@ -607,7 +615,8 @@ io.on('connection', function(socket) {
                                                             if (chosen_player.hp<1) {
                                                                 room.npcs[npc_name].attackers.splice(idx,1);
                                                                 combat_socket.emit('update', 'You were slain by '+room.npcs[npc_name].alias);
-                                                                combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);
+                                                                combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);$a
+                                                                ghost_player(chosen_player);
                                                             }
                                                             for (var x in room.npcs[npc_name].attackers) {
                                                                 room.npcs[npc_name].hp -= player_dam;
@@ -640,6 +649,34 @@ io.on('connection', function(socket) {
                             socket.emit('update', '[attack|kill] usage: [attack|kill] [player|npc] <target>.');
                         }
                     }
+                    if (command === 'slay' && player.wizard) {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            found = false;
+                            for (var i in player_list) {
+                                if (player_list[i].name === target) {
+                                    if (!player_list[i].ghost) {
+                                        target_player = player_list[i];
+                                        target_player.hp = 0;
+                                        target_socket = io.sockets.connected[target_player.socket_id];
+                                        target_socket.emit('update', 'A bolt of lightning comes down and smites you dead!');
+                                        target_socket.broadcast.to(target_player.location).emit('update', 'A bolt of lightning comes down and smites '+target+' dead!');
+                                        socket.emit('update','You have smited '+target);
+                                        ghost_player(target_player);
+                                    } else {
+                                        socket.emit('update',target+' is already dead.');
+                                    }
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                socket.emit('update', 'Cannot find '+target);
+                            }
+                        } else {
+                            console.emit('update','slay usage: slay <[player|npc]>');
+                        }
+                    }
                     if (command === 'logout' || command ==='quit' || command ==='disconnect') {
                         socket.emit('loopback', 'disconnect');
                     }
@@ -661,6 +698,42 @@ io.on('connection', function(socket) {
         });
     });
 });
+
+function spawn_obj_in_room(file, room_location, new_alias) {
+    new_obj = null;
+    try {
+        player_redis.incr('objs', function(err, val) {
+            if (err) {
+                debug('SPAWN_OBJ_IN_ROOM redis incr ERROR'+ err);
+            } else {
+                tokens = file.split('/',2);
+                realm = tokens[0];
+                obj_file = tokens[1];
+                file_data = fs.readFileSync('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8');
+                new_obj = JSON.parse(file_data);
+                new_obj.name += '#'+val;
+                if (typeof rooms[room_location].inv === 'undefined') {
+                    rooms[room_location].inv = {};
+                }
+                if (new_alias) {
+                    new_obj.alias = new_alias;
+                }
+                rooms[room_location].inv[new_obj.name] = new_obj;
+            }
+        });
+    } catch(e) {
+        debug('SPAWN_OBJ_IN_ROOM: '+e);
+    }
+    return new_obj;
+}
+
+function ghost_player(dead_player) {
+    dead_player.ghost = true;
+    dead_player.alias = 'Ghost of '+ dead_player.name;
+    dp_socket = io.sockets.connected[dead_player.socket_id];
+    dp_socket.emit('prompt', dead_player.name+' (GHOST) (0/'+dead_player.max_hp+'):'+dead_player.location+'> ');
+    spawn_obj_in_room('main/corpse', dead_player.location, dead_player.name+"'s corpse");
+}
 
 function move_player2(socket, player, dest, exit_msg, magical) {
     old_location = player.location;
@@ -819,10 +892,14 @@ function show_others_in_room(socket, room, player) {
     invis = 0;
     for (var player_id in room.who) {
         if (room.who[player_id].ninja_mode && player.wizard) {
-            in_room += room.who[player_id].name +' (invisible),';
+            in_room += room.who[player_id].alias+' '+'('+room.who[player_id].name+') (invisible),';
             invis++;
         } else if (!room.who[player_id].ninja_mode) {
-            in_room += room.who[player_id].name +',';
+            if (player.wizard) {
+                in_room += room.who[player_id].alias+' '+'('+room.who[player_id].name+'),';
+            } else {
+                in_room += room.who[player_id].alias+',';
+            }
             count++;
         }
     }
@@ -846,9 +923,9 @@ function show_room_inventory2(socket, room, player) {
     if (typeof room.inv !== 'undefined') {
         for (var key in room.inv) {
             if (player.wizard && room.inv[key].invisible) {
-                str+= key +' (invisible)\n';
+                str+=  room.inv[key].alias+ '('+key+') (invisible)\n';
             } else {
-                str+= key +'\n';
+                str+=  room.inv[key].alias+ '('+key+')\n';
             }
         }
     }
