@@ -175,7 +175,7 @@ io.on('connection', function(socket) {
                             msg = args.rest;
                             debug(player.name + ' said ' + msg);
                             if (player.ghost) {
-                                socket.emit('update', 'You tried to say "' + msg + '" but noone hears you.';
+                                socket.emit('update', 'You tried to say "' + msg + '" but noone hears you.');
                             } else {
                                 socket.emit('update', 'You said ' + msg);
                             }
