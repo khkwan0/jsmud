@@ -84,6 +84,23 @@ io.on('connection', function(socket) {
 
     player_redis.select(5, function() {
         socket.on('login', function(msg) {
+            // check if already connected
+            for (var i in player_list) {
+                if (player_list[i].socket_id === socket.id) {
+                    debug('Same socket login. '+ player_list[i].name);
+                    player_redis.set(player_list[i].name, JSON.stringify(player_list[i]));
+                    if (!player_list[i].ninja_mode) {
+                        socket.broadcast.to(player_list[i].location).emit('update', player_list[i].name + ' disconnected.');
+                        try {
+                        debug(player_list[i].location);
+                        delete rooms[player_list[i].location].who[player_list[i].id];
+                        } catch(e) {
+                        debug(e);
+                        }
+                    }
+                    delete player_list[i];
+                }
+            }
             args = JSON.parse(msg);
             player.name = args.args[0];
             if (typeof player.name !== 'undefined') {
@@ -95,17 +112,26 @@ io.on('connection', function(socket) {
                         if (!player.id) {
                             player.id = uuid.v4();
                         }
-                        if (typeof player_list[player.id] !== 'undefined') {
-                            socket.emit('update', player.name + ' is already connected.');
-                            socket.emit('loopback','disconnect');
-                        } else {
-                            player_list[player.id] = player;
-                            load_and_enter_room(socket, player, player.location, false);
-                        }
+                        player_list[player.id] = player;
+                       load_and_enter_room(socket, player, player.location, false);
                     } else {
+                        // initialize new player
                         player.id = uuid.v4();
-                        player.socket_id = socket.id;
+                        player.alias = null;
+                        player.gagged = false;
+                        player.level = 1;
+                        player.ghost = false;
+                        player.hp = 100;
                         player.max_hp = 100;
+                        player.socket_id = socket.id;
+                        player.wizard = false;
+                        player.realm = 'main';
+                        player.room_name = 'outside_ted';
+                        player.location = 'main/outside_ted';
+                        player.ninja_mode = false;
+                        player.inv = {};
+
+
                         player_list[player.id] = player;
                         load_and_enter_room(socket, player, player.location, false);
                     }
@@ -347,7 +373,7 @@ io.on('connection', function(socket) {
                             socket.emit('update','demote usage: <dem|demote> [target]');
                         }
                     }
-                    if (command === 'spawn' && player.wizard) {
+                    if ((command === 'spawn'  || command === 'spwan') && player.wizard) {
                         if (typeof args.args[0] !== 'undefined') {
                             tokens = args.args[0].split('/', 2);
                             realm = tokens[0];
@@ -680,14 +706,16 @@ function load_and_enter_room(socket, player, dest, magical) {
                             for (var event_name in npc.events) {
                                 npc.listener.on(event_name, function(npc_obj, player) {
                                     if (npc_obj.hp > 0) {
-                                        var num_actions = npc_obj.events[event_name].actions.length;
-                                        idx = Math.floor(Math.random() * num_actions);
-                                        to_emote = npc_obj.events[event_name].actions[idx].replace('%player%', player.name);
-                                        bcast_emote = to_emote.replace('%you%', player.name);
-                                        you_emote = to_emote.replace('%you%', 'you');
-                                        player_socket = io.sockets.connected[player.socket_id];
-                                        player_socket.emit('update', npc_obj.alias + ' ' + you_emote);
-                                        player_socket.broadcast.to(player.location).emit('update', npc_obj.alias+ ' ' + bcast_emote);
+                                        if (!player.ninja_mode) {
+                                            var num_actions = npc_obj.events[event_name].actions.length;
+                                            idx = Math.floor(Math.random() * num_actions);
+                                            to_emote = npc_obj.events[event_name].actions[idx].replace('%player%', player.name);
+                                            bcast_emote = to_emote.replace('%you%', player.name);
+                                            you_emote = to_emote.replace('%you%', 'you');
+                                            player_socket = io.sockets.connected[player.socket_id];
+                                            player_socket.emit('update', npc_obj.alias + ' ' + you_emote);
+                                            player_socket.broadcast.to(player.location).emit('update', npc_obj.alias+ ' ' + bcast_emote);
+                                        }
                                     }
                                 });
                             }
@@ -869,6 +897,8 @@ function enter_room2(socket, player, room, magical) {
     }
     socket.emit('prompt', player.name+' ('+player.hp+'/'+player.max_hp+'):'+room_id+'> ');
     player.location = room.realm+'/'+room.name;
+    player.realm = room.realm;
+    player.room_name = room.name;
     // sned arrive signal to all npcs
     if (typeof room.npcs !== 'undefined') {
         for (var i in room.npcs) {
