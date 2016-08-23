@@ -9,5 +9,7 @@
     "can_wield": true,
     "min_damage":1,
     "max_damage":5,
-    "can_block":false
+    "can_block":false,
+    "origin":"main/knife",
+    "inv":{}
 }
