@@ -8,7 +8,7 @@ var uuid = require('uuid');
 var fs = require('fs');
 var em = require('events');
 
-var attack_timeout = 5000;
+var attack_timeout = 1000;
 var valid_commands = {
     'say':'say [something]'
     ,'go':'go [n/s/e/w/enter/exit]'
@@ -174,13 +174,17 @@ io.on('connection', function(socket) {
                         if (!player.gagged) {
                             msg = args.rest;
                             debug(player.name + ' said ' + msg);
-                            socket.emit('update', 'You said ' + msg);
+                            if (player.ghost) {
+                                socket.emit('update', 'You tried to say "' + msg + '" but noone hears you.';
+                            } else {
+                                socket.emit('update', 'You said ' + msg);
+                            }
                             if (player.ninja_mode) {
                                 socket.broadcast.to(room_id).emit('update', 'A mysterious voice said ' + msg);
                             } else if (player.ghost) {
                                 socket.broadcast.to(room_id).emit('update', 'You hear the wail of '+ player.alias);
                             } else {
-                                socket.broadcast.to(room_id).emit('update', player.name + ' said ' + msg);
+                                socket.broadcast.to(room_id).emit('update', player.alias+ ' said ' + msg);
                             }
                         }
                     }
@@ -615,7 +619,7 @@ io.on('connection', function(socket) {
                                                             if (chosen_player.hp<1) {
                                                                 room.npcs[npc_name].attackers.splice(idx,1);
                                                                 combat_socket.emit('update', 'You were slain by '+room.npcs[npc_name].alias);
-                                                                combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);$a
+                                                                combat_socket.broadcast.to(room_id).emit('update', room.npcs[npc_name].alias + ' kills '+chosen_player.name);
                                                                 ghost_player(chosen_player);
                                                             }
                                                             for (var x in room.npcs[npc_name].attackers) {
@@ -782,8 +786,8 @@ function load_and_enter_room(socket, player, dest, magical) {
                                         if (!player.ninja_mode) {
                                             var num_actions = npc_obj.events[event_name].actions.length;
                                             idx = Math.floor(Math.random() * num_actions);
-                                            to_emote = npc_obj.events[event_name].actions[idx].replace('%player%', player.name);
-                                            bcast_emote = to_emote.replace('%you%', player.name);
+                                            to_emote = npc_obj.events[event_name].actions[idx].replace('%player%', player.alias);
+                                            bcast_emote = to_emote.replace('%you%', player.alias);
                                             you_emote = to_emote.replace('%you%', 'you');
                                             player_socket = io.sockets.connected[player.socket_id];
                                             player_socket.emit('update', npc_obj.alias + ' ' + you_emote);
