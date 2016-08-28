@@ -12,5 +12,7 @@ obj = {
     "max_damage":5,
     "can_block":false,
     "origin":"main/knife",
+    "edible": false,
+    "heal": 0,
     "inv":{}
 }

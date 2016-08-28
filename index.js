@@ -11,8 +11,8 @@ var em = require('events');
 var attack_timeout = 1000;
 var valid_commands = {
     'say':'say [something]'
-    ,'go':'go [n/s/e/w/enter/exit]'
-    ,'n/s/e/w/enter/exit':'a macro for go [n/s/e/w/enter/exit]'
+    ,'go':'go [n/s/e/w/enter/leave]'
+    ,'n/s/e/w/enter/leave':'a macro for go [n/s/e/w/enter/leave]'
     ,'shout':'Yell across all realms, across all rooms - probably will be a wizard command to prevent spamming'
     ,'gag':'(Wizard only) - Gag a player from talking'
     ,'look':'Look at your surroundings'
@@ -52,6 +52,9 @@ var valid_commands = {
     ,'set': '(Wizard only) (SUPER WIZARD only): set server side variables.  dangerous!'
     ,'load': '(Wizard only): reload/load a room.  usage "load <realm>/<filename without the .js extension>"'
     ,'gender': 'set your gender.  You can only do this once on a new character.  gender <[male|female|it]>.'
+    ,'quests': 'show your quest log.'
+    ,'q': 'show your quest log.'
+    ,'stats': 'see your stats'
     ,'logout': 'save and quit'
     ,'disconnect': 'save and quit'
     ,'quit': 'save and quit'
@@ -220,13 +223,19 @@ io.on('connection', function(socket) {
                                     }
                                     if (typeof room.start_npcs !== 'undefined') {
                                         multi = obj_redis.multi();
-                                        room.npcs = [];
+                                        room.npcs = {};
+                                        idnums = [];
                                         for (var i in room.start_npcs) {
-                                            eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
                                             multi.incr('npc_id', function(err, data) {
-                                                npc.name = npc.name+'#'+data;
-                                                npc.room = room.name;
-                                                npc.realm = room.realm;
+                                               idnums.push(data); 
+                                            });
+                                        }
+                                        multi.exec(function() {
+                                            index = 0;
+                                            for (var i in room.start_npcs) {
+                                                eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                                                npc.id = npc.name+'#'+idnums[index];
+                                                index++;
                                                 if (typeof room.npcs === 'undefined') {
                                                     room.npcs = {};
                                                 }
@@ -241,12 +250,9 @@ io.on('connection', function(socket) {
                                                         });
                                                     }
                                                 }
-                                                room.npcs[npc.name] = npc;
-                                            });
-                                        }
-                                        multi.exec(function() {
+                                                room.npcs[npc.id] = npc;
+                                            }
                                             rooms[room.realm+'/'+room.name] = room;
-                                            //enter_room2(socket, player, room, magical, args);
                                             socket.emit('update', 'loaded: '+room.realm+'/'+room.name);
                                         });
                                     } else {
@@ -945,6 +951,57 @@ io.on('connection', function(socket) {
                         socket.emit('update', args.rest);
                         eval(args.rest);
                     }
+                    if (command === 'quests' || command === 'q') {
+                        if (typeof args.args[0] !== 'undefined') {
+                            target = args.args[0];
+                            if (typeof player.quests.active[target] !== 'undefined') {
+                                str = '*-*-* Active Quest: '+target+' *-*-*-\n';
+                                str += player.quests.active[target].alias + '\n';
+                                str += player.quests.active[target].name + '\n';
+                                str += player.quests.active[target].desc+'\n';
+                            } else if (typeof player.quests.completed[target] !== 'undefined') {
+                                str = '*-*-* Completed Quest: '+target+' *-*-*-';
+                                str += player.quests.completed[target].alias + '\n';
+                                str += player.quests.completed[target].name + '\n';
+                                str += player.quests.completed[target].desc+'\n';
+                            } else {
+                                str = 'Could not find '+target+' in your quest log.';
+                            }
+                            socket.emit('update', str);
+                        } else {
+                            if (typeof player.quests !== 'undefined') {
+                                str = '*-*-*-*-*-*-*-*-* QUESTS *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-\n';
+                                str += 'To see details a specifix quest: try "quest <quest id>"\n';
+                                str += 'Active quests:\n\n';
+                                for (var i in player.quests.active) {
+                                    str += 'Quest ID: '+ i+'\n';
+                                }
+                                str += '\n-------------------------------------------------------\n';
+                                str += 'Completed quests:\n';
+                                for (var i in player.quests.completed) {
+                                    str += i;
+                                }
+                                str += '\n';
+                                str += '*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-';
+                                socket.emit('update', str);
+                            } else {
+                                player.quests = {};
+                                player.quests.ative = {};
+                                player.quests.completed = {};
+                                player_redis.set(player.name, JSON.stringify(player));
+                            }
+                        }
+                    }
+                    if (command === 'stats') {
+                        str = 'Alias/Name: '+player.alias+'/'+player.name;
+                        str += '\nID: '+player.id;
+                        str += '\nLEVEL: '+player.level;
+                        str += '\nHP: '+player.hp;
+                        str += '\nMAX HP: '+player.max_hp;
+                        str += '\nXP: '+player.xp;
+                        str += '\nGENDER: '+player.gender;
+                        socket.emit('update', str);
+                    }
                     if (command === 'help') {
                         str = 'You can:\n';
                         for (var key in valid_commands) {
@@ -1050,14 +1107,19 @@ function load_and_enter_room(socket, player, dest, magical, args) {
             eval(fs.readFileSync('./realms/'+realm+'/rooms/'+room_name+'.js','utf8'));
             if (typeof room.start_npcs !== 'undefined') {
                 multi = obj_redis.multi();
-                room.npcs = [];
+                room.npcs = {};
+                idnums = [];
                 for (var i in room.start_npcs) {
-                    eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
                     multi.incr('npc_id', function(err, data) {
-                        npc.name = npc.name;
-                        npc.id = npc.name+'#'+data;
-                        npc.room = room.name;
-                        npc.realm = room.realm;
+                       idnums.push(data); 
+                    });
+                }
+                multi.exec(function() {
+                    index = 0;
+                    for (var i in room.start_npcs) {
+                        eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                        npc.id = npc.name+'#'+idnums[index];
+                        index++;
                         if (typeof room.npcs === 'undefined') {
                             room.npcs = {};
                         }
@@ -1073,9 +1135,7 @@ function load_and_enter_room(socket, player, dest, magical, args) {
                             }
                         }
                         room.npcs[npc.id] = npc;
-                    });
-                }
-                multi.exec(function() {
+                    }
                     rooms[room.realm+'/'+room.name] = room;
                     enter_room2(socket, player, room, magical, args);
                     rv = true;
@@ -1226,11 +1286,11 @@ function show_npcs_in_room2(socket, room, player, hard_look) {
     if (typeof room.npcs !== 'undefined') {
         for (var i in room.npcs) {
             if (player.wizard && room.npcs[i].invisible) {
-                str += room.npcs[i].alias+' ('+room.npcs[i].name+ ' | '+i+') (invis) is here.';
+                str += room.npcs[i].alias+' ('+room.npcs[i].name+ ' | '+i+') (invis) is here.\n';
             } else if (hard_look || player.wizard) {
-                str += room.npcs[i].alias+' ('+room.npcs[i].name+ ' | '+i+') is here.';
+                str += room.npcs[i].alias+' ('+room.npcs[i].name+ ' | '+i+') is here.\n';
             } else {
-                str += room.npcs[i].alias+ ' is here.';
+                str += room.npcs[i].alias+ ' is here.\n';
             }
         }
     }
@@ -1319,5 +1379,75 @@ function spawn_obj_into_player(obj, player) {
         }
     } catch(e) {
         debug('SPAWN_OBJ_INTO_PLAYER: '+e);
+    }
+}
+
+function say_to_player(player, msg) {
+    socket = io.sockets.connected[player.socket_id];
+    socket.emit('update', msg);
+}
+
+function set_quest(quest_file, player) {
+    rv = false;
+    try {
+        tokens = quest_file.split('/',2);
+        realm = tokens[0];
+        file = tokens[1];
+        eval(fs.readFileSync('./realms/'+realm+'/quests/'+file+'.js','utf8'));
+        if (typeof player.quests === 'undefined') {
+            player.quests = {};
+            player.quests.completed = {};
+        }
+        if (typeof player.quests.completed[quest_file] !== 'undefined') {
+        } else {
+            if (typeof player.quests.active === 'undefined') {
+                player.quests.active = {};
+            }
+            player.quests.active[quest_file] = quest;
+            rv = true;
+        }
+        player_redis.set(player.name, JSON.stringify(player));
+    } catch(e) {
+        debug('SET_QUEST: '+e);
+    }
+    return rv;
+}
+
+function complete_quest(quest_id, the_npc, player, args) {
+    rv = false;
+    try {
+        if (typeof player.quests.active[quest_id] !== 'undefined') {
+            rv = true;
+            player.xp += player.quests.active[quest_id].xp;
+            add_exp(player, player.quests.active[quest_id].xp);
+            if (typeof player.quests.active[quest_id] !== 'undefined') {
+                if (typeof player.quests.active[quest_id].complete !== 'undefined') {
+                    player.quests.active[quest_id].complete(the_npc, player, args);
+                }
+            }
+            if (player.quests.completed === 'undefined') {
+                player.quests.completed = {};
+            }
+            temp_quest = {};
+            for (var i in player.quests.active[quest_id]) {
+                temp_quest[quest_id] = player.quests.active[quest_id];
+            }
+            player.quests.completed[quest_id] = temp_quest;
+            delete player.quests.active[quest_id];
+            player_redis.set(player.name, JSON.stringify(player));
+        }
+    } catch(e) {
+        debug(e);
+    }
+    return rv;
+}
+
+function add_exp(player, xp) {
+    try {
+        player.xp += xp;
+        say_to_player(player, 'You\'ve gained '+xp+' XP.');
+        player_redis.set(player.name, JSON.stringify(player));
+    } catch(e) {
+        debug(e);
     }
 }

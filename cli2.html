@@ -60,7 +60,7 @@
                             socket.emit('login', JSON.stringify(args));
                         } else {
                             switch (args.name) {
-                                case 'n':case 's': case 'e': case 'w': case 'enter': case 'exit':args.args[0] = args.name;args.name = 'go';break;
+                            case 'exit':case 'leave':case 'n':case 's': case 'e': case 'w': case 'enter': case 'leave':args.args[0] = args.name;args.name = 'go';break;
                                 default:break
                             }
                             socket.emit('cmd',JSON.stringify(args));
@@ -68,7 +68,7 @@
                     } else {
                     }
                 }
-                , { greetings: false, prompt: 'anon> ' }
+                , { greetings: false, prompt: 'anon> ',exit:false }
                 );
             });
         </script>

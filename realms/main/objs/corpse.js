@@ -11,5 +11,7 @@ obj = {
     "max_damage":0,
     "can_block":false,
     "origin":"main/corpse",
+    "edible": false,
+    "heal": 0,
     "inv": {}
 }
