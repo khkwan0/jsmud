@@ -50,6 +50,7 @@ var valid_commands = {
     ,'slay': '(Wizard only) slay <player|npc> : instantly kill a player or npc (kill - not destroy)'
     ,'res': '(Wizard only) res <player|npc> : restore health back to max_hp.'
     ,'set': '(Wizard only) (SUPER WIZARD only): set server side variables.  dangerous!'
+    ,'load': '(Wizard only): reload/load a room.  usage "load <realm>/<filename without the .js extension>"'
     ,'gender': 'set your gender.  You can only do this once on a new character.  gender <[male|female|it]>.'
     ,'logout': 'save and quit'
     ,'disconnect': 'save and quit'
@@ -86,6 +87,8 @@ io.on('connection', function(socket) {
         "ghost": false,
         "gender": "male",
         "money": 0,
+        "email":'',
+        "password":'',
         "inv": {}
     }
 
@@ -191,6 +194,75 @@ io.on('connection', function(socket) {
                     }
                 }
                 if (typeof valid_commands[command] !== 'undefined') {
+                    if (command === 'load') {
+                        if (typeof args.args[0] !== 'undefined') {
+                            tokens = args.args[0].split('/',2);
+                            realm = tokens[0];
+                            file = tokens[1];
+                            type = 'rooms';
+                            if (type === 'rooms') {
+                                try {
+                                    if (typeof room.who === 'undefined') {
+                                        room.who = {};
+                                    }
+                                    old_room = {};
+                                    old_room.who = {};
+                                    for (var player_id in room.who) {
+                                       old_room.who[player_id] = room.who[player_id]; 
+                                    }
+
+                                    eval(fs.readFileSync('./realms/'+realm+'/rooms/'+file+'.js','utf8'));
+                                    room.who = {};
+                                    for (var player_id in old_room.who) {
+                                        room.who[player_id] = old_room.who[player_id];
+                                    }
+                                    if (typeof room.start_npcs !== 'undefined') {
+                                        multi = player_redis.multi();
+                                        room.npcs = [];
+                                        for (var i in room.start_npcs) {
+                                            eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                                            multi.incr('npc_id', function(err, data) {
+                                                npc.name = npc.name+'#'+data;
+                                                npc.room = room.name;
+                                                npc.realm = room.realm;
+                                                if (typeof room.npcs === 'undefined') {
+                                                    room.npcs = {};
+                                                }
+                                                // initialize events
+                                                if (typeof npc.events !== 'undefined') {
+                                                    npc.listener = new em();
+                                                    for (var event_name in npc.events) {
+                                                        npc.listener.on(event_name, function(event_name,npc_obj, player, args) {
+                                                            if (npc_obj.hp > 0) {
+                                                                npc_obj.events[event_name](npc_obj,player,args);
+                                                            }
+                                                        });
+                                                    }
+                                                }
+                                                room.npcs[npc.name] = npc;
+                                            });
+                                        }
+                                        multi.exec(function() {
+                                            rooms[room.realm+'/'+room.name] = room;
+                                            //enter_room2(socket, player, room, magical, args);
+                                            rv = true;
+                                        });
+                                    } else {
+                                        rooms[room.realm+'/'+room.name] = room;
+                                        //enter_room2(socket, player, room, magical, args);
+                                        rv = true;
+                                    }
+                                } catch(e) {
+                                    str = 'Problem loading '+ realm+'/'+file+ ' ' + e;
+                                    debug(str);
+                                }
+                            }
+
+
+
+                        } else {
+                        }
+                    }
                     if (command === 'say') {
                         if (!player.gagged) {
                             msg = args.rest;
@@ -206,13 +278,6 @@ io.on('connection', function(socket) {
                                 socket.broadcast.to(room_id).emit('update', 'You hear the wail of '+ player.alias);
                             } else {
                                 socket.broadcast.to(room_id).emit('update', player.alias+ ' said ' + msg);
-                            }
-                            if (typeof room.npcs !=='undefined') {  // send say to npcs to check for responses
-                                for (var i in room.npcs) {
-                                    if (typeof room.npcs[i].listener !== 'undefined') {
-//                                        room.npcs[i].listener.emit('say', 'say', room.npcs[i], player);
-                                    }
-                                }
                             }
                         }
                     }
@@ -277,6 +342,7 @@ io.on('connection', function(socket) {
                                     }
                                 }
                                 if (found) {
+                                    socket.emit('update', target+' is a(n) '+target_player.gender);
                                     show_inventory2(socket, target_player);
                                     if (!player.ninja_mode) {
                                         socket.broadcast.to(room_id).emit('update', player.name + ' examines ' + target);
@@ -672,15 +738,15 @@ io.on('connection', function(socket) {
                                 if (sex === 'male' || sex ==='female' || sex==='it') {
                                     player.gender = sex;
                                     if (sex === 'male') {
-                                        player.possessive_prounon = 'his';
+                                        player.possessive_pronoun = 'his';
                                         player.direct_object_pronoun = 'him';
                                         player.subject_pronoun = 'he';
                                     } else if (sex === 'female') {
-                                        player.possessive_prounon = 'her';
+                                        player.possessive_pronoun= 'her';
                                         player.direct_object_pronoun = 'her';
                                         player.subject_pronoun = 'she';
                                     } else {
-                                        player.possessive_prounon = 'its';
+                                        player.possessive_pronoun= 'its';
                                         player.direct_object_pronoun = 'it';
                                         player.subject_pronoun = 'it';
                                     }
@@ -931,6 +997,7 @@ function load_and_enter_room(socket, player, dest, magical, args) {
         area = dest.split('/',2);
         realm = area[0];
         room_name = area[1];
+        debug('LOAD room:' + realm+'/'+room_name);
         try {
             eval(fs.readFileSync('./realms/'+realm+'/rooms/'+room_name+'.js','utf8'));
             if (typeof room.start_npcs !== 'undefined') {
@@ -949,7 +1016,6 @@ function load_and_enter_room(socket, player, dest, magical, args) {
                         if (typeof npc.events !== 'undefined') {
                             npc.listener = new em();
                             for (var event_name in npc.events) {
-                                debug('Register event: ' + event_name);
                                 npc.listener.on(event_name, function(event_name,npc_obj, player, args) {
                                     if (npc_obj.hp > 0) {
                                         npc_obj.events[event_name](npc_obj,player,args);
