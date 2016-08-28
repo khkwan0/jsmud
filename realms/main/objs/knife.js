@@ -1,4 +1,4 @@
-{
+obj = {
     "name":"knife",
     "alias":"knife",
     "short":"A decorated 6-inch knife",

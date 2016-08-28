@@ -556,9 +556,8 @@ io.on('connection', function(socket) {
                             realm = tokens[0];
                             filename = tokens[1];
                             try {
-                                file_data = fs.readFileSync('./realms/'+realm+'/objs/'+filename+'.js', 'utf8');
+                                eval(fs.readFileSync('./realms/'+realm+'/objs/'+filename+'.js', 'utf8'));
                                 obj_redis.incr('objs', function(err, val) {
-                                    obj = JSON.parse(file_data);
                                     obj.id = obj.name+'#'+val;
                                     obj.location = player.name+','+player.id;
                                     str = 'Loaded '+args.args[0]+' name: '+obj.name+' alias: '+obj.alias;
@@ -624,6 +623,8 @@ io.on('connection', function(socket) {
                             }
                             if (!found) {
                                 socket.emit('update','Could not find '+target);
+                            } else {
+                                player_redis.set(player.name, JSON.stringify(player));
                             }
                         } else {
                             socket.emit('update','dest usage: dest <[obj.name]|npc.name]>');
@@ -995,8 +996,8 @@ function spawn_obj_in_room(file, room_location, new_alias) {
                 realm = tokens[0];
                 obj_file = tokens[1];
                 file_data = fs.readFileSync('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8');
-                new_obj = JSON.parse(file_data);
-                new_obj.name += '#'+val;
+                new_obj = eval(file_data);
+                new_obj.id = new_obj.name+'#'+val;
                 if (typeof rooms[room_location].inv === 'undefined') {
                     rooms[room_location].inv = {};
                 }
@@ -1296,4 +1297,27 @@ function broadcast_to_room(room, msg) {
 
 function emote_to_room(locale, msg) {
     io.sockets.in(locale).emit('update', msg);
+}
+
+function spawn_obj_into_player(obj, player) {
+    try {
+        if (typeof obj !== 'undefined' && typeof player !== 'undefined') {
+            tokens = obj.split('/', 2);
+            realm = tokens[0];
+            file = tokens[1];
+            eval(fs.readFileSync('./realms/'+realm+'/objs/'+file+'.js', 'utf8'));
+            // todo, initiate event listeners
+            if (typeof player.inv === 'undefined') {
+                player.inv = {};
+            }
+            debug('adding');
+            obj_redis.incr('obj_id', function(err, val) {
+                obj.id = obj.name+'#'+val;
+                player.inv[obj.id] = obj;
+            });
+        } else {
+        }
+    } catch(e) {
+        debug('SPAWN_OBJ_INTO_PLAYER: '+e);
+    }
 }

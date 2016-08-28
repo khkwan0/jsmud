@@ -1,4 +1,4 @@
-{
+obj = {
     "name":"corpse",
     "alias":"Corpse",
     "long":"This is a dead corpse of a player.",

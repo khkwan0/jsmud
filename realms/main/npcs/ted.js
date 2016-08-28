@@ -32,6 +32,7 @@ npc = {
                 msg = the_npc.alias + ' ' + greetings[idx];
                 msg = msg.replace('%player%', player.name);
                 emote_to_room(the_npc.realm+'/'+the_npc.room, msg);
+                //spawn_obj_into_player('main/knife', player);
             }
         }
     }
