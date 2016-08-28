@@ -8,24 +8,29 @@ npc = {
     realm: "main",
     room: "teds_office",
     events: {
-        arrive: function(npc,player) {
-                    var greetings = [
-                        "says what up B!",
-                        "says hi %player%!",
-                        "says wassup %player%.",
-                        "nods at %player%.",
-                        "waves hi to %player%.",
-                        "seems busy and ignores %player%.",
-                        "seems busy and ignores %player%."
-                   ];
+        say:function(the_npc, player, args) {
+            if (args.rest.length>0) {
+                debug(the_npc.name+' heard: '+args.rest);
+            }
+        },
+        arrive: function(the_npc,player, args) {
+            var greetings = [
+                "says what up B!",
+                "says hi %player%!",
+                "says wassup %player%.",
+                "nods at %player%.",
+                "waves hi to %player%.",
+                "seems busy and ignores %player%.",
+                "seems busy and ignores %player%."
+           ];
 
-                    if (!player.ninja_mode) {
-                        var num_greetings = greetings.length;
-                        idx = Math.floor(Math.random() * num_greetings);
-                        msg = npc.alias + ' ' + greetings[idx];
-                        msg = msg.replace('%player%', player.name);
-                        emote_to_room(npc.realm+'/'+npc.room, msg);
-                    }
-                 }
+            if (!player.ninja_mode) {
+                var num_greetings = greetings.length;
+                idx = Math.floor(Math.random() * num_greetings);
+                msg = the_npc.alias + ' ' + greetings[idx];
+                msg = msg.replace('%player%', player.name);
+                emote_to_room(the_npc.realm+'/'+the_npc.room, msg);
+            }
+        }
     }
 }
