@@ -53,6 +53,7 @@ var valid_commands = {
     ,'load': '(Wizard only): reload/load a room.  usage "load <realm>/<filename without the .js extension>"'
     ,'gender': 'set your gender.  You can only do this once on a new character.  gender <[male|female|it]>.'
     ,'quests': 'show your quest log.'
+    ,'quest': 'show your quest log.'
     ,'q': 'show your quest log.'
     ,'stats': 'see your stats'
     ,'logout': 'save and quit'
@@ -951,7 +952,7 @@ io.on('connection', function(socket) {
                         socket.emit('update', args.rest);
                         eval(args.rest);
                     }
-                    if (command === 'quests' || command === 'q') {
+                    if (command === 'quests' || command === 'q' || command =='quest') {
                         if (typeof args.args[0] !== 'undefined') {
                             target = args.args[0];
                             if (typeof player.quests.active[target] !== 'undefined') {
@@ -960,7 +961,7 @@ io.on('connection', function(socket) {
                                 str += player.quests.active[target].name + '\n';
                                 str += player.quests.active[target].desc+'\n';
                             } else if (typeof player.quests.completed[target] !== 'undefined') {
-                                str = '*-*-* Completed Quest: '+target+' *-*-*-';
+                                str = '*-*-* Completed Quest: '+target+' *-*-*-\n';
                                 str += player.quests.completed[target].alias + '\n';
                                 str += player.quests.completed[target].name + '\n';
                                 str += player.quests.completed[target].desc+'\n';
@@ -972,6 +973,7 @@ io.on('connection', function(socket) {
                             if (typeof player.quests !== 'undefined') {
                                 str = '*-*-*-*-*-*-*-*-* QUESTS *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-\n';
                                 str += 'To see details a specifix quest: try "quest <quest id>"\n';
+                                str += 'The shortcut \'q <quest id>\' works too.\n';
                                 str += 'Active quests:\n\n';
                                 for (var i in player.quests.active) {
                                     str += 'Quest ID: '+ i+'\n';
@@ -1045,7 +1047,7 @@ function get_player_by_name(player_name) {
 function spawn_obj_in_room(file, room_location, new_alias) {
     new_obj = null;
     try {
-        objs_redis.incr('objs', function(err, val) {
+        obj_redis.incr('objs', function(err, val) {
             if (err) {
                 debug('SPAWN_OBJ_IN_ROOM redis incr ERROR'+ err);
             } else {
@@ -1061,7 +1063,7 @@ function spawn_obj_in_room(file, room_location, new_alias) {
                 if (new_alias) {
                     new_obj.alias = new_alias;
                 }
-                rooms[room_location].inv[new_obj.name] = new_obj;
+                rooms[room_location].inv[new_obj.id] = new_obj;
             }
         });
     } catch(e) {
@@ -1387,6 +1389,11 @@ function say_to_player(player, msg) {
     socket.emit('update', msg);
 }
 
+function sound_to_player(player, sound) {
+    socket = io.sockets.connected[player.socket_id];
+    socket.emit('fx'+sound);
+}
+
 function set_quest(quest_file, player) {
     rv = false;
     try {
@@ -1396,10 +1403,17 @@ function set_quest(quest_file, player) {
         eval(fs.readFileSync('./realms/'+realm+'/quests/'+file+'.js','utf8'));
         if (typeof player.quests === 'undefined') {
             player.quests = {};
-            player.quests.completed = {};
         }
-        if (typeof player.quests.completed[quest_file] !== 'undefined') {
+        if (typeof player.quests.completed !== 'undefined') {
+            if (typeof player.quests.completed[quest_file] === 'undefined') {
+                if (typeof player.quests.active === 'undefined') {
+                    player.quests.active = {};
+                    player.quests.active[quest_file] = quest;
+                    rv = true;
+                }
+            }
         } else {
+            player.quests.completed = {};
             if (typeof player.quests.active === 'undefined') {
                 player.quests.active = {};
             }
@@ -1430,7 +1444,7 @@ function complete_quest(quest_id, the_npc, player, args) {
             }
             temp_quest = {};
             for (var i in player.quests.active[quest_id]) {
-                temp_quest[quest_id] = player.quests.active[quest_id];
+                temp_quest[i] = player.quests.active[quest_id][i];
             }
             player.quests.completed[quest_id] = temp_quest;
             delete player.quests.active[quest_id];
@@ -1447,7 +1461,41 @@ function add_exp(player, xp) {
         player.xp += xp;
         say_to_player(player, 'You\'ve gained '+xp+' XP.');
         player_redis.set(player.name, JSON.stringify(player));
+        check_level(player, player.xp);
     } catch(e) {
         debug(e);
     }
+}
+
+function check_level(player, xp) {
+    new_level = 1;
+    if (xp>99) { new_level = 2; };
+    if (xp>299) { new_level = 3; };
+    if (xp>499) { new_level = 4; };
+    if (xp>799) { new_level = 5; };
+    if (xp>1099) { new_level = 6; };
+    if (xp>1499) { new_level = 7; };
+    if (xp>1899) { new_level = 8; };
+    if (xp>2399) { new_level = 9; };
+    if (xp>2899) { new_level = 10 };
+    if (xp>3399) { new_level = 11 };
+    if (xp>3899) { new_level = 12 };
+    if (xp>4399) { new_level = 13 };
+    if (xp>4899) { new_level = 14 };
+    if (xp>5399) { new_level = 15 };
+    if (xp>5899) { new_level = 16 };
+    if (new_level > player.level) {
+        diff = new_level - player.level;
+        if (diff > 1) {
+            say_to_player(player, 'You GAINED '+diff+' levels!  You feel more experienced.  You are now level '+new_level);
+        } else {
+            say_to_player(player, 'You GAINED a level!  You feel more experienced. You are now level '+new_level);
+        }
+        player.level = new_level;
+        player.max_hp = new_level * 100 +Math.floor(Math.random() * 10 + 5);
+        player.hp = player.max_hp;
+        sound_to_player(player, 'level');
+        player_redis.set(player.name, JSON.stringify(player));
+    }
+
 }

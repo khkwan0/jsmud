@@ -28,7 +28,7 @@ npc = {
         },
         arrive: function(the_npc,player, args) {
             var greetings = [
-                "says wasssaaaaa[!",
+                "says wasssaaaaap!",
                 "says hey!",
                 "says whatuuuup %player%.",
                 "nods at %player%.",

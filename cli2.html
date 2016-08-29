@@ -17,6 +17,11 @@
                  \/          \/                 \/       \/\/           \/    \/     \/     \/     \/          \/       \/              \/     \/ 
 </pre>
 </div>
+<div>
+    <audio id="fxlevel" preload="none">
+        <source src="http://caldrivers.com/~ken/jsmud/assets/sounds/level_up.mp3" type="audio/mpeg">
+    </audio>
+</div>
 <div>   
     <p>Welcome to JSMUD.  A Multi-User Dungeon powered by NodeJS.</p>
     <p>You can try login &lt;username&gt; (NOTE: Since we are still in very early alpha, there may be a user already with the username you've chosen.  We haven't implemented an account system yet so you might be logging in as a player who already has that username.</p>
@@ -31,7 +36,9 @@
         <script>
             var socket = io();
             var glob_term;
-
+            $("#level").bind("load",function(){
+                console.log('loaded');
+            }); 
             jQuery(function($, undefined) {
                 socket.on('connect', function() {
                 });
@@ -44,6 +51,9 @@
                 socket.on('disconnect',function(msg) {
                     term.echo('Lost connection to server.');
                     term.set_prompt('anon> ');
+                });
+                socket.on('fxlevel', function() {
+                    $('#fxlevel').trigger('play');
                 });
 
                 socket.on('loopback', function(msg) {
