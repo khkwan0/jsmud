@@ -2,6 +2,7 @@ npc = {
     name:"ted",
     alias: "Ted",
     desc:"Ted is sitting down at his desk responding to an email, bidding for an item on ebay, checking daily numbers, on the speaker phone with a client, prosepecting real estate, and has another person on hold.  You should ask him what he is reading by trying 'say ted, what are you reading?' or 'say ted, what is that email all about?' or even just 'say email'",
+    level: 20,
     max_hp:1000,
     hp:1000,
     inv: [],

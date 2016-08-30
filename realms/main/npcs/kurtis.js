@@ -2,6 +2,7 @@ npc = {
     name:"Kurtis",
     alias: "kurtis",
     desc:"Kurtis is a male caucasian with brown hair.  He is the Chief Operating Office for engagebdr.com.  Upon further inspection, you think you know him from somewhere.  Perhaps on a TV Show that you've seen?  You might want to 'greet kurtis' if you haven't done so.",
+    level:20,
     max_hp:1000,
     hp:1000,
     inv: [],

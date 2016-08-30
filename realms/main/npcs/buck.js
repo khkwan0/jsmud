@@ -2,6 +2,7 @@ npc = {
     name:"Buck",
     alias: "buck",
     desc:"Buck is a labrador retriever.  He has 4 legs and 4 paws and a cream color coat of short haired fur. He is always looking for food.",
+    level:20,
     max_hp:1000,
     hp:1000,
     inv: [],
