@@ -123,7 +123,6 @@ io.on('connection', function(socket) {
                     if (data) {
                         player = JSON.parse(data);
                         player.socket_id = socket.id;
-                        player.max_hp = 100;
                         if (!player.id) {
                             player.id = uuid.v4();
                         }
