@@ -884,7 +884,6 @@ io.on('connection', function(socket) {
                                                                                         xp_given = 0;
                                                                                     }
                                                                                     add_exp(player, xp_given);
-                                                                                    player.socket.emit('update', 'You gained '+xp_given+' XP.');
                                                                                 }
                                                                                 delete room.npcs[npc_name];
                                                                             }
