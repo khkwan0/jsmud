@@ -20,11 +20,11 @@ git clone https://github.com/khkwan0/jsmud
  // run this under tmux or screen - for persistence
  $> node index.js 
 
- API:
+## API:
 
-add_exp(plater, xp)
-complete_quest(quest_id, npc, player, args)
-set_quest(quest_file, player)
-spawn_obj_into_player(obj_file, player)
-emote_to_room(room, msg)
-send_to_player(player, msg)
+- add_exp(plater, xp)
+- complete_quest(quest_id, npc, player, args)
+- set_quest(quest_file, player)
+- spawn_obj_into_player(obj_file, player)
+- emote_to_room(room, msg)
+- send_to_player(player, msg)
