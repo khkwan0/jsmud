@@ -22,7 +22,7 @@ git clone https://github.com/khkwan0/jsmud
 
 ## API:
 
-- add_exp(plater, xp)
+- add_exp(player, xp)
 - complete_quest(quest_id, npc, player, args)
 - set_quest(quest_file, player)
 - spawn_obj_into_player(obj_file, player)
