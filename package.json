@@ -7,6 +7,7 @@
     "jquery.terminal": "^0.10.12",
     "natural": "^0.4.0",
     "redis": "^2.6.2",
+    "serve-index": "^1.8.0",
     "socket.io": "^1.4.8",
     "uuid": "^2.0.2"
   }

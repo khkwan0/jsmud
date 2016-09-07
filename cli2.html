@@ -50,7 +50,7 @@
                 });
                 socket.on('disconnect',function(msg) {
                     term.set_prompt('anon> ');
-                    socket.disconnect();
+//                    socket.disconnect();
                 });
                 socket.on('fxlevel', function() {
                     $('#fxlevel').trigger('play');
