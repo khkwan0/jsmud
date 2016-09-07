@@ -1,4 +1,5 @@
 var redis = require('redis');
+var express = require('express');
 var app = require('express')();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
@@ -7,6 +8,12 @@ var path = require('path');
 var uuid = require('uuid');
 var fs = require('fs');
 var em = require('events');
+var serve_index = require('serve-index');
+var config = require('./config');
+
+app.use('/assets', express.static('assets'));
+app.use('/realms', express.static('realms'));
+app.use('/realms', serve_index('realms', {'icons':true}));
 
 var attack_timeout = 1000;
 var valid_commands = {
@@ -64,12 +71,12 @@ var valid_commands = {
 var player_list = {};
 var obj_list = {};
 var rooms = {};
-//var redis_client = redis.createClient();
+
 var player_redis = redis.createClient();
 var obj_redis = redis.createClient();
-obj_redis.select(4);
+obj_redis.select(config.redis.obj_db);
 
-http.listen(2500);
+http.listen(config.network.port);
 app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
 });
@@ -99,7 +106,7 @@ io.on('connection', function(socket) {
         "inv": {}
     }
 
-    player_redis.select(5, function() {
+    player_redis.select(config.redis.player_db, function() {
         socket.on('login', function(msg) {
             // check if already connected
             for (var i in player_list) {
@@ -139,7 +146,9 @@ io.on('connection', function(socket) {
                             player.xp = 0;
                         }
                         player_list[player.id] = player;
-                        load_and_enter_room(socket, player, player.location, false, args);
+                        if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
+                            load_and_enter_room(socket, player, 'main/outside_ted', false, args);
+                        }
                     } else {
                         // initialize new player
                         player.id = uuid.v4();
@@ -1371,6 +1380,7 @@ function show_exits(socket, room, player) {
     socket.emit('update', 'You can go: ' + exits);
 }
 
+// Helper functions exposed to creators
 function send_to_player(player, msg) {
     player_socket = io.sockets.connected[player.socket_id];
     player_socket.emit('update', npc_obj.alias + ' ' + you_emote);

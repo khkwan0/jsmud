@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <script src="http://caldrivers.com/~ken/jsmud/assets/js/jquery.js"></script>
-        <script src="http://caldrivers.com/~ken/jsmud/assets/js/jquery.terminal-0.10.12.min.js"></script>
-        <script src="http://caldrivers.com/~ken/jsmud/assets/js/jquery.mousewheel-min.js"></script>
+        <script src="/assets/js/jquery.js"></script>
+        <script src="/assets/js/jquery.terminal-0.10.12.min.js"></script>
+        <script src="/assets/js/jquery.mousewheel-min.js"></script>
         <script src="/socket.io/socket.io.js"></script>
-        <link href="http://caldrivers.com/~ken/jsmud/assets/css/jquery.terminal-0.10.12.min.css" rel="stylesheet"/>
+        <link href="/assets/css/jquery.terminal-0.10.12.min.css" rel="stylesheet"/>
     </head>
     <body>
         <div><pre>
@@ -19,7 +19,7 @@
 </div>
 <div>
     <audio id="fxlevel" preload="none">
-        <source src="http://caldrivers.com/~ken/jsmud/assets/sounds/level_up.mp3" type="audio/mpeg">
+        <source src="/assets/sounds/level_up.mp3" type="audio/mpeg">
     </audio>
 </div>
 <div>   
@@ -49,8 +49,8 @@
                     term.set_prompt(msg);
                 });
                 socket.on('disconnect',function(msg) {
-                    term.echo('Lost connection to server.');
                     term.set_prompt('anon> ');
+                    socket.disconnect();
                 });
                 socket.on('fxlevel', function() {
                     $('#fxlevel').trigger('play');
