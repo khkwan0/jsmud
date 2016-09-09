@@ -1,0 +1,157 @@
+<html>
+    <head>
+        <title>JSMud Room/OBJ/NPC Generator</title>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link href="/assets/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body>
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-sm-4">
+                    <h2>Realms</h2>
+                    <ul id="files">
+                    {% for realms in tree.dir %}
+                        {% if tree.isLeaf == 1 %}
+                            <li><a href="#" class="edit_me" id="{{ realms.full_path }}" filename="{{ realms.file }}">{{ realms.full_path }}</a></li>
+                        {% else %}
+                            <li><a href="/generate/{{ realms }}">{{ realms }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    </ul>
+               </div>
+               <div class="col-sm-8">
+                    <form>
+                        <input type="hidden" id="what" value="{{ what }}" readonly />  
+                        <div>
+                            <label>Realm</label><input id="realm" value="{{ realm }}" readonly />
+                        </div>
+                        <div>
+                            <label>Name</label>
+                            <input name="name" id="room_name" value="" placeholder="Name" />
+                        </div>
+                        <div>
+                            <label>Long</label>
+                            <textarea name="long" id="room_long" value="" placeholder="long description"></textarea>
+                        </div>
+                        <div>
+                            <label>Short</label>
+                            <input name="short" id="room_short" value="" placeholder="Short description" />
+                        </div>
+                        <div>
+                            <label>Exits</label>
+                            <div id="exits">
+                            </div>
+                        </div>
+                        <div>
+                        </div>
+                    </form>
+                    <button id="add_exit">Add exit</button>
+                    <button id="save">Save</button>
+                </div>
+                <div id="error">
+                </div>
+            </div>
+        </div>
+        <script src="/assets/js/jquery.js"></script>
+        <script src="/assets/bootstrap/js/bootstrap.min.js"></script>
+        <script>
+            $(function() {
+                num_exits = 0;
+                $('.edit_me').click(function(data) {
+                    do_click($(this));
+                });
+
+                function do_click(clicked) {
+                    file = clicked.attr('id');
+                    room_name = clicked.attr('filename').slice(0,-3);
+                    $.post('/realm_edit',
+                        {
+                            'the_file': file
+                        },
+                        function(room) {
+                            change = false;
+                            if (room_name != room.name) {
+                                console.log(room.name+' changed');
+                                room.name = room_name;
+                                change = true;
+                            }
+                            $('#room_name').val(room.name);
+                            $('#room_long').val(room.long);
+                            $('#room_short').val(room.short);
+                            $('#exits').text('');
+                            num_exits = 0;
+                            for (var dir in room.exits) {
+                                $('#exits').append('<div><input class="exit_dir" idx="'+num_exits+'" name="exit['+num_exits+']" size="5" value="'+dir+'" /><input id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="'+room.exits[dir]+'" /></div>');
+                                num_exits++;
+                            }
+                            if (change) {
+                                do_save(false, 'realms/'+file);
+                            }
+                        },'json'
+                    );
+                };
+
+                $('#add_exit').click(function(data) {
+                    $('#exits').append('<div><input name="exit['+num_exits+']" idx="'+num_exits+'" size="5" value="" /><input id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="" /></div>');
+                    num_exits++;
+                });
+
+                $('#save').click(function(data) {
+                    room_name = $('#room_name').val();
+                    filename = 'realms/'+$('#realm').val()+'/'+$('#what').val()+'/'+room_name+'.js';
+                    if (typeof room_name !== 'undefined' && room_name.length>0) {
+                        do_save(true, filename);
+                    }
+                });
+
+                function do_save(clear_fields, filename) {
+                    var new_room = {};
+                    new_room.exits = {};
+                    new_room.name = $('#room_name').val();
+                    new_room.long = $('#room_long').val();
+                    new_room.short = $('#room_short').val();
+                    realm = $('#realm').val();
+                    what = $('#what').val();
+                    $('.exit_dir').each(function(key, value) {
+                        dir = $(value).val();
+                        new_room.exits[dir] = $('#exit_file'+($(value).attr('idx'))).val();
+                    });
+                    $.post('/save_room',
+                        {
+                            'filename': filename,
+                            'new_room':JSON.stringify(new_room),
+                            'realm': realm,
+                            'what': what
+                        }, 
+                        function(rv) {
+                            if (rv) {
+                                if (clear_fields && !rv.error) {
+                                    $('#room_name').val('');
+                                    $('#room_long').val('');
+                                    $('#room_short').val('');
+                                    num_exits = 0;
+                                    $('#exits').html('');
+                                }
+                                if (rv.error) {
+                                    $('#error').text(rv.msg);
+                                    $('#error').show();
+                                }
+                                if (!rv.error) {
+                                    $('#files').html('');
+                                    for (var i in rv.tree) {
+                                        $('#files').append('<li><a href="#" class="edit_me" id="'+rv.tree[i].full_path+'" filename="'+rv.tree[i].file+'">'+rv.tree[i].full_path+'</a></li>');
+                                        $('.edit_me').on('click', function() {
+                                            do_click($(this));
+                                        });
+                                    }
+                                }
+                            }
+                        },'json'
+                    );
+                }
+            });
+        </script>
+    </body>
+</html>

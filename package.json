@@ -2,13 +2,22 @@
   "name": "jsmud",
   "version": "0.0.1",
   "description": "multi user dungeon using node.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/khkwan0/jsmud.git"
+  },
   "dependencies": {
+    "body-parser": "^1.15.2",
+    "bootstrap": "^3.3.7",
+    "consolidate": "^0.14.1",
+    "directory-tree": "^1.1.0",
     "express": "^4.14.0",
     "jquery.terminal": "^0.10.12",
     "natural": "^0.4.0",
     "redis": "^2.6.2",
     "serve-index": "^1.8.0",
     "socket.io": "^1.4.8",
+    "swig": "^1.4.2",
     "uuid": "^2.0.2"
   }
 }

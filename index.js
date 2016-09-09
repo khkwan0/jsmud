@@ -2,6 +2,7 @@ var redis = require('redis');
 var express = require('express');
 var app = require('express')();
 var http = require('http').Server(app);
+var cons = require('consolidate');
 var io = require('socket.io')(http);
 var path = require('path');
 //var natural = require('natural');
@@ -9,8 +10,17 @@ var uuid = require('uuid');
 var fs = require('fs');
 var em = require('events');
 var serve_index = require('serve-index');
+var dir_tree = require('directory-tree');
+var bodyParser = require('body-parser');
 var config = require('./config');
 
+app.engine('html',  cons.swig);
+app.set('view engine', 'swig');
+app.set('views', __dirname + '/views');
+app.use(bodyParser.json());       // to support JSON-encoded bodies
+app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+    extended: true
+}));
 app.use('/assets', express.static('assets'));
 app.use('/realms', express.static('realms'));
 app.use('/realms', serve_index('realms', {'icons':true}));
@@ -80,6 +90,132 @@ obj_redis.select(config.redis.obj_db);
 http.listen(config.network.port);
 app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
+});
+
+app.get('/generate', function(req, res) {
+    target = 'realms';
+    tree = {};
+    tree.isLeaf = 0;
+    tree.dir = fs.readdirSync(target).filter(function(file) {
+        return (fs.statSync(target+'/'+file).isDirectory())
+        }).map(function(dir) {
+            return dir;
+        });
+    console.log(tree);
+    res.render('generate.html', {'tree':tree});
+});
+
+app.get('/generate/:realm', function(req, res) {
+    if (typeof req.params.realm!== 'undefined') {
+        target = req.params.realm;
+    } else {
+        target = 'realms';
+    }
+    tree = {};
+    tree.isLeaf = 0;
+    tree.dir  = fs.readdirSync('realms/'+target).filter(function(file) {
+        return (fs.statSync('realms/'+target+'/'+file).isDirectory())
+        }).map(function(dir) {
+            return target+'/'+dir;
+        });
+    res.render('generate.html', {'tree':tree});
+});
+
+app.post('/realm_edit', function(req, res) {
+    try {
+        file = req.body.the_file;
+    } catch(e) {
+        console.log(e);
+    }
+    fs.readFile('realms/'+file, function(err, data) {
+        try {
+            if (!err) {
+                eval('thing='+data);
+                res.send(JSON.stringify(thing));
+            } else {
+                throw(err)
+            }
+        } catch(e) {
+            console.log(e);
+            res.send(e);
+        }
+    });
+});
+
+app.post('/save_room', function(req, res) {
+    try {
+        new_room = req.body.new_room;
+        filename = req.body.filename;
+        realm = req.body.realm;
+        what = req.body.what;
+        fs.writeFile(filename, 'room = '+new_room, 'utf8',function(err) {
+            if (err) {
+                throw(err);
+            } else {
+                room = JSON.parse(new_room);
+                if (room.exits) {
+                    for (var dir in room.exits) {
+                        tokens = room.exits[dir].split('/', 2);
+                        to_realm = tokens[0];
+                        to_room = tokens[1];
+                        try {
+                            fs.statSync('realms/'+to_realm+'/rooms/'+to_room+'.js');
+                        } catch(e) {
+                            new_room = {
+                                'realm': to_realm,
+                                'name': room.exits[dir],
+                                'short': '',
+                                'long': '',
+                                'exits': {}
+                            };
+                            fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
+                        }
+                    }
+                }
+                dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
+                    return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
+                }).map(function(file) {
+                    return {
+                        'full_path':realm+'/'+what+'/'+file,
+                        'file': file
+                    }
+                });
+                result = {
+                    error:false,
+                    msg:'ok',
+                    tree: dir
+                };
+                res.send(JSON.stringify(result));
+            }
+        });
+    } catch(e) {
+        console.log('xxx'+e);
+        result = {
+            error: true,
+            msg: e
+        }
+        res.send(JSON.stringify(result));
+    }
+});
+
+app.get('/generate/:realm/:what', function(req, res) {
+    realm = '';
+    what = '';
+    if (typeof req.params.realm !== 'undefined' && req.params.what !== 'undefined') {
+        realm = req.params.realm;
+        what = req.params.what;
+    }
+    tree = {};
+    tree.isLeaf = 1;
+    tree.dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
+            return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
+        }).map(function(file) {
+            return {
+                'full_path':realm+'/'+what+'/'+file,
+                'file': file
+            }
+        });
+    res.render('generate.html', {'tree':tree, 'realm':realm, 'what':what});
 });
 
 io.on('connection', function(socket) {

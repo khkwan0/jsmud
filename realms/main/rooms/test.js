@@ -1,0 +1,1 @@
+room = {"exits":{},"name":"test","long":"testdd","short":"test"}
