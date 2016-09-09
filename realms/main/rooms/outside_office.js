@@ -1,1 +1,0 @@
-room = {"exits":{},"name":"outside_office","long":"","short":"","realm":"main"}

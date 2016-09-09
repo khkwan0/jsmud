@@ -1,1 +1,0 @@
-room = {"exits":{"n":"main/account_area","s":"main/outside_conference_room","w":"main/entrance"},"name":"outside_conference_room","long":"You are in the reception area.","short":"Lobby/Reception area","realm":"main"}

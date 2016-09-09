@@ -1,1 +1,0 @@
-room = {"exits":{"e":"main/outside_it","enter":"main/kurtis_office","w":"main/outside_ryan"},"name":"outside_kurtis","long":"You are standing in a hallway outside of Kurtis' office in the 9000 building.  Kurtis is a founder, partner, and Chief Operating Officer for engagebdr.com.  The door is open and you can 'enter'.","short":"Outside of Kurtis' Office","realm":"main"}

@@ -1,1 +1,0 @@
-room = {"exits":{"e":"main/outside_ryan"},"name":"outside_ken","long":"you are outside ken's office","short":"outside ken's","realm":"main"}
