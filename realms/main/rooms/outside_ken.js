@@ -1,1 +1,1 @@
-room = {"name":"outside_ken","long":"You are in the accounting area.","short":"Accounting Area"}
+room = {"exits":{"e":"main/outside_ryan"},"name":"outside_ken","long":"you are outside ken's office","short":"outside ken's","realm":"main"}

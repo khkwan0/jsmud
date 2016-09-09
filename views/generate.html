@@ -77,6 +77,7 @@
                                 room.name = room_name;
                                 change = true;
                             }
+                            $('#realm').val(room.realm);
                             $('#room_name').val(room.name);
                             $('#room_long').val(room.long);
                             $('#room_short').val(room.short);
@@ -94,7 +95,7 @@
                 };
 
                 $('#add_exit').click(function(data) {
-                    $('#exits').append('<div><input name="exit['+num_exits+']" idx="'+num_exits+'" size="5" value="" /><input id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="" /></div>');
+                    $('#exits').append('<div><input class="exit_dir" name="exit['+num_exits+']" idx="'+num_exits+'" size="5" value="" /><input class="exit_dir" id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="" /></div>');
                     num_exits++;
                 });
 
@@ -112,6 +113,7 @@
                     new_room.name = $('#room_name').val();
                     new_room.long = $('#room_long').val();
                     new_room.short = $('#room_short').val();
+                    new_room.realm = $('#realm').val();
                     realm = $('#realm').val();
                     what = $('#what').val();
                     $('.exit_dir').each(function(key, value) {
@@ -131,6 +133,7 @@
                                     $('#room_name').val('');
                                     $('#room_long').val('');
                                     $('#room_short').val('');
+                                    $('#realm').val('');
                                     num_exits = 0;
                                     $('#exits').html('');
                                 }

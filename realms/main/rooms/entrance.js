@@ -1,1 +1,1 @@
-room = {"name":"entrance","long":"","short":""}
+room = {"name":"entrance","long":"","short":"","realm":"main"}

@@ -1,1 +1,1 @@
-room = {"name":"hallway_exec_bathroom","long":"","short":""}
+room = {"exits":{"e":"main/outside_ted","w":"main/outside_it"},"name":"hallway_exec_bathroom","long":"It smells like shit here.","short":"","realm":"main"}

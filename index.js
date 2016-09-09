@@ -650,7 +650,7 @@ io.on('connection', function(socket) {
                     if (command === 'go') {
                         if (typeof args.args[0] !== 'undefined') {
                             direction = args.args[0];
-                            if (direction in room.exits) {
+                            if (typeof room.exits!='undefined' && (direction in room.exits)) {
                                 dest = room.exits[direction];
                                 exit_msg = 'goes '+direction;
                                 move_player2(socket, player, dest, exit_msg, false, args);
