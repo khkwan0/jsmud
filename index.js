@@ -2,6 +2,7 @@ var redis = require('redis');
 var express = require('express');
 var app = require('express')();
 var http = require('http').Server(app);
+var cons = require('consolidate');
 var io = require('socket.io')(http);
 var path = require('path');
 //var natural = require('natural');
@@ -9,8 +10,17 @@ var uuid = require('uuid');
 var fs = require('fs');
 var em = require('events');
 var serve_index = require('serve-index');
+var dir_tree = require('directory-tree');
+var bodyParser = require('body-parser');
 var config = require('./config');
 
+app.engine('html',  cons.swig);
+app.set('view engine', 'swig');
+app.set('views', __dirname + '/views');
+app.use(bodyParser.json());       // to support JSON-encoded bodies
+app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+    extended: true
+}));
 app.use('/assets', express.static('assets'));
 app.use('/realms', express.static('realms'));
 app.use('/realms', serve_index('realms', {'icons':true}));
@@ -46,6 +56,7 @@ var valid_commands = {
     ,'demote':'(Wizard only) - demote [target player]: Remove wizard status immediately.'
     ,'dem':'(Wizard only) - demote [target player]: Remove wizard status immediately.'
     ,'dest': '(Wizard only) - dest [object/npc]: destroy an object or npc from the realms.'
+    ,'destroy': '(Wizard only) - destroy: [object/npc]: destroy an object or npc from the realms.'
     ,'Look': 'Hard look (see objects and npcs hash id numbers.'
     ,'L': '(Wizard only) - Hard look.'
     ,'lwield': 'lwield <obj>: Wield an object or a weapon in your LEFT hand.'
@@ -79,6 +90,132 @@ obj_redis.select(config.redis.obj_db);
 http.listen(config.network.port);
 app.get('/', function(req, res) {
     res.sendFile(path.join(__dirname + '/cli2.html'));
+});
+
+app.get('/generate', function(req, res) {
+    target = 'realms';
+    tree = {};
+    tree.isLeaf = 0;
+    tree.dir = fs.readdirSync(target).filter(function(file) {
+        return (fs.statSync(target+'/'+file).isDirectory())
+        }).map(function(dir) {
+            return dir;
+        });
+    console.log(tree);
+    res.render('generate.html', {'tree':tree});
+});
+
+app.get('/generate/:realm', function(req, res) {
+    if (typeof req.params.realm!== 'undefined') {
+        target = req.params.realm;
+    } else {
+        target = 'realms';
+    }
+    tree = {};
+    tree.isLeaf = 0;
+    tree.dir  = fs.readdirSync('realms/'+target).filter(function(file) {
+        return (fs.statSync('realms/'+target+'/'+file).isDirectory())
+        }).map(function(dir) {
+            return target+'/'+dir;
+        });
+    res.render('generate.html', {'tree':tree});
+});
+
+app.post('/realm_edit', function(req, res) {
+    try {
+        file = req.body.the_file;
+    } catch(e) {
+        console.log(e);
+    }
+    fs.readFile('realms/'+file, function(err, data) {
+        try {
+            if (!err) {
+                eval('thing='+data);
+                res.send(JSON.stringify(thing));
+            } else {
+                throw(err)
+            }
+        } catch(e) {
+            console.log(e);
+            res.send(e);
+        }
+    });
+});
+
+app.post('/save_room', function(req, res) {
+    try {
+        new_room = req.body.new_room;
+        filename = req.body.filename;
+        realm = req.body.realm;
+        what = req.body.what;
+        fs.writeFile(filename, 'room = '+new_room, 'utf8',function(err) {
+            if (err) {
+                throw(err);
+            } else {
+                room = JSON.parse(new_room);
+                if (room.exits) {
+                    for (var dir in room.exits) {
+                        tokens = room.exits[dir].split('/', 2);
+                        to_realm = tokens[0];
+                        to_room = tokens[1];
+                        try {
+                            fs.statSync('realms/'+to_realm+'/rooms/'+to_room+'.js');
+                        } catch(e) {
+                            new_room = {
+                                'realm': to_realm,
+                                'name': room.exits[dir],
+                                'short': '',
+                                'long': '',
+                                'exits': {}
+                            };
+                            fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
+                        }
+                    }
+                }
+                dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
+                    return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
+                }).map(function(file) {
+                    return {
+                        'full_path':realm+'/'+what+'/'+file,
+                        'file': file
+                    }
+                });
+                result = {
+                    error:false,
+                    msg:'ok',
+                    tree: dir
+                };
+                res.send(JSON.stringify(result));
+            }
+        });
+    } catch(e) {
+        console.log('xxx'+e);
+        result = {
+            error: true,
+            msg: e
+        }
+        res.send(JSON.stringify(result));
+    }
+});
+
+app.get('/generate/:realm/:what', function(req, res) {
+    realm = '';
+    what = '';
+    if (typeof req.params.realm !== 'undefined' && req.params.what !== 'undefined') {
+        realm = req.params.realm;
+        what = req.params.what;
+    }
+    tree = {};
+    tree.isLeaf = 1;
+    tree.dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
+            return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
+        }).map(function(file) {
+            return {
+                'full_path':realm+'/'+what+'/'+file,
+                'file': file
+            }
+        });
+    res.render('generate.html', {'tree':tree, 'realm':realm, 'what':what});
 });
 
 io.on('connection', function(socket) {
@@ -145,6 +282,7 @@ io.on('connection', function(socket) {
                         if (typeof player.xp === 'undefined') {
                             player.xp = 0;
                         }
+                        player.inv = [];
                         player_list[player.id] = player;
                         if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
                             load_and_enter_room(socket, player, 'main/outside_ted', false, args);
@@ -174,7 +312,7 @@ io.on('connection', function(socket) {
                         player.quests = {};
                         player.quests.active = {};
                         player.quests.completed = {};
-                        player.inv = {};
+                        player.inv = [];
 
 
                         player_list[player.id] = player;
@@ -390,11 +528,13 @@ io.on('connection', function(socket) {
                             }
                             if (typeof player.inv !== 'undefined') {
                                 target_obj = null;
-                                for (var obj_id in player.inv) {
-                                    if (player.inv[obj_id].name === target.toLowerCase() || obj_id.toLowerCase() === target.toLowerCase()) {
-                                        target_obj = player.inv[obj_id];
+                                for (var i in player.inv) {
+                                    obj_id = player.inv[i];
+                                    if (obj_list[obj_id].name === target.toLowerCase() || obj_list.toLowerCase() === target.toLowerCase()) {
+                                        target_obj = obj_list[obj_id];
                                         if (!target_obj.invisible || player.wizard) {
-                                            to_emote = target_obj.short+'\n'+target_obj.long;
+                                            to_emote = obj_id +'\n';
+                                            to_emote += target_obj.short+'\n'+target_obj.long;
                                             match++;
                                             if (!player.ninja_mode && !target_obj.invisible) {
                                                 socket.broadcast.to(room_id).emit('update', player.name + ' examines ' + target);
@@ -510,7 +650,7 @@ io.on('connection', function(socket) {
                     if (command === 'go') {
                         if (typeof args.args[0] !== 'undefined') {
                             direction = args.args[0];
-                            if (direction in room.exits) {
+                            if (typeof room.exits!='undefined' && (direction in room.exits)) {
                                 dest = room.exits[direction];
                                 exit_msg = 'goes '+direction;
                                 move_player2(socket, player, dest, exit_msg, false, args);
@@ -577,14 +717,18 @@ io.on('connection', function(socket) {
                                 eval(fs.readFileSync('./realms/'+realm+'/objs/'+filename+'.js', 'utf8'));
                                 obj_redis.incr('objs', function(err, val) {
                                     obj.id = obj.name+'#'+val;
-                                    obj.location = player.name+','+player.id;
+                                    obj.location = { 'player': player.id };
                                     str = 'Loaded '+args.args[0]+' name: '+obj.name+' alias: '+obj.alias;
                                     socket.emit('update',str);
                                     obj_list[obj.id] = obj;
                                     if (typeof player.inv === 'undefined') {
-                                        player.inv = {};
+                                        player.inv = [];
                                     }
-                                    player.inv[obj.id] = obj;
+                                    an_obj = {
+                                        'id': obj.id,
+                                        'origin': obj.origin
+                                    }
+                                    player.inv.push(an_obj);
                                     player_redis.set(player.name, JSON.stringify(player),function() {
                                         show_inventory2(socket, player);
                                     });
@@ -602,7 +746,7 @@ io.on('connection', function(socket) {
                         if (typeof args.args[0] !== 'undefined') {
                             target = args.args[0];
                             found = false;
-                            if (typeof room.npcs[target] !=='undefined') {
+                            if (typeof room.npcs !=='undefined' && typeof room.npcs[target] !=='undefined') {  // destroy an npc
                                 found = true;
                                 if (!player.ninja_mode) {
                                     socket.broadcast.to(room_id).emit('update',player.name+ ' conjures a miniature black hole.  The black hole swallows '+room.npcs[target].alias+ ' and disappears.');
@@ -614,9 +758,9 @@ io.on('connection', function(socket) {
                             }
                             if (!found && typeof room.inv !== 'undefined') { // check objects in the room
                                 for (var i in room.inv) {
-                                    if (i == target) {
-                                        delete obj_list[room.inv[i].name];
-                                        delete room.inv[i];
+                                    if (room.inv[i].id == target) {
+                                        delete obj_list[room.inv[i].id];
+                                        room.inv.splice(i,1);
                                         if (!player.ninja_mode) {
                                             socket.broadcast.to(room_id).emit('update', player.name+ ' shoots a small jet of blue flame towards '+target+'.  '+target+' disappears in a puff of black smoke.  The acrid smell of smoke dissipates.');
                                         } else {
@@ -630,9 +774,9 @@ io.on('connection', function(socket) {
                             }
                             if (!found && typeof player.inv !== 'undefined') { // finally check the players inventory
                                 for (var i in player.inv) {
-                                    if (i === target) {
-                                        delete obj_list[player.inv[i].name];
-                                        delete player.inv[i];
+                                    if (player.inv[i].id === target) {
+                                        delete obj_list[player.inv[i].id];
+                                        player.inv.splice(i,1);
                                         socket.emit('update', 'You destroyed '+target);
                                         found = true;
                                         break;
@@ -654,32 +798,27 @@ io.on('connection', function(socket) {
                             match = 0;
                             obj_target = null;
                             var match_key = null;
+                            to_splice = -1;
 
                             // supports targetting by name or hashid.  have to check if there are muiltiple  objects with the same name
                             for (var i in player.inv) {
-                                if (player.inv[i].name.toLowerCase() === target.toLowerCase() || i.toLowerCase() === target.toLowerCase()) {
+                                obj_id = player.inv[i].id;
+                                if (obj_list[obj_id].name.toLowerCase() === target.toLowerCase() || obj_id.toLowerCase() === target.toLowerCase()) {
                                     match++;
-                                    obj_target = player.inv[i];
-                                    match_key = i;
+                                    obj_target = obj_list[obj_id];
+                                    match_key = obj_id;
+                                    to_splice = i;
                                 }
                             }
 
                             // since there is only 1 object in inventory with a uniquie name, drop it, else require a hash id
                             if (match == 1) {
-                                new_obj = {};
-                                for (var key in obj_target) {
-                                    new_obj[key] = obj_target[key];
-                                }
+                                obj_target.location = {'room':room_id};
                                 if (typeof room.inv === 'undefined') {
-                                    room.inv = {};
+                                    room.inv = [];
                                 }
-                                room.inv[match_key] = new_obj;
-                                delete player.inv[match_key];
-                                if (typeof obj_list[target] !== 'undefined') {
-                                    obj_list[target].location = room.realm+'/'+room.name;
-                                } else {
-                                    obj_list[target] = new_obj;
-                                }
+                                room.inv.push(player.inv[to_splice]);
+                                player.inv.splice(to_splice, 1);
                                 if (player.ninja_mode) {
                                     socket.broadcast.to(room.realm+'/'+room.name).emit('update', target+' appears out of nowhere.');
                                 } else {
@@ -708,43 +847,26 @@ io.on('connection', function(socket) {
                             match_key = null;
                             target_obj = null;
                             for (var i in room.inv) {
-                                if (room.inv[i].name.toLowerCase() === target.toLowerCase() || i.toLowerCase() === target.toLowerCase()) {
+                                if (obj_list[room.inv[i].id].name.toLowerCase() === target.toLowerCase() || room.inv[i].id.toLowerCase() === target.toLowerCase()) {
                                     match++;
                                     match_key = i;
-                                    target_obj = room.inv[i];
+                                    target_obj = obj_list[room.inv[i].id];
                                 }
                             }
                             if (target_obj && match == 1) {
                                 if (target_obj.can_get) {
-                                    new_obj = {};
-                                    for (var keys in target_obj) {
-                                        new_obj[keys] = target_obj[keys];
+                                    target_obj.location = {'player':player.id};
+                                    player.inv.push(room.inv[match_key]);
+                                    room.inv.splice(match_key,1);
+                                    socket.emit('update','You picked up '+target+' and placed it in your inventory');
+                                    if (player.ninja_mode) {
+                                        socket.broadcast.to(room.realm+'/'+room.name).emit('update', target +' appears to float in the air then disappears.');
+                                    } else {
+                                        socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' picked up '+target);
                                     }
-                                    new_obj.location = player.name+','+player.id;
-                                    try {
-                                        delete room.inv[match_key];
-                                        if (typeof player.inv != 'undefined') {
-                                            player.inv[match_key] = new_obj;
-                                        } else {
-                                            player.inv = { [match_key]:new_obj };
-                                        }
-                                        socket.emit('update','You picked up '+target+' and placed it in your inventory');
-                                        if (player.ninja_mode) {
-                                            socket.broadcast.to(room.realm+'/'+room.name).emit('update', target +' appears to float in the air then disappears.');
-                                        } else {
-                                            socket.broadcast.to(room.realm+'/'+room.name).emit('update', player.name + ' picked up '+target);
-                                        }
-                                        player_redis.set(player.name, JSON.stringify(player));
-                                        if (typeof obj_list[target] !== 'undefined') {
-                                            obj_list[target].location = player.name +','+player.id;
-                                        } else {
-                                            obj_list[target] = new_obj;
-                                        }
-                                        if (player.realm === 'workshop') {
+                                    player_redis.set(player.name, JSON.stringify(player));
+                                    if (player.realm === 'workshop') {
                                             player_redis.set(room.realm +'/'+ room.name, JSON.stringify(room));
-                                        }
-                                    } catch(e) {
-                                        debug('Couldn\'t delete for GET command.  Possible DUP');
                                     }
                                 } else {
                                     socket.emit('update','You cannot pick up '+target+'.');
@@ -851,6 +973,7 @@ io.on('connection', function(socket) {
                                                                 if (typeof room.npcs[npc_name].timers['attack_timers'] === 'undefined') {
                                                                     room.npcs[npc_name].timers['attack_timer'] = setInterval(function() {
                                                                         try {
+                                                                            if (typeof room.npcs[npc_name] !== 'undefined') {
                                                                             idx = Math.floor(Math.random() * room.npcs[npc_name].attackers.length);
                                                                             chosen_player = room.npcs[npc_name].attackers[idx];
                                                                             chosen_player.hp -= npc_dam;
@@ -895,12 +1018,13 @@ io.on('connection', function(socket) {
                                                                                 }
                                                                                 delete room.npcs[npc_name];
                                                                             }
-                                                                            if (room.npcs[npc_name].attackers.length<1) {
+                                                                            if (typeof room.npcs[npc_name] !== 'undefined' && room.npcs[npc_name].attackers.length<1) {
                                                                                 clearInterval(room.npcs[npc_name].timers['attack_timer']);
                                                                             }
                                                                             player_redis.set(chosen_player.name, JSON.stringify(chosen_player));
+                                                                            }
                                                                         } catch(e) {
-                                                                            debug(e);
+                                                                            debug('ATTACK'+e + new Error().stack);
                                                                         }
                                                                     }, attack_timeout);
                                                                 }
@@ -1078,7 +1202,7 @@ function get_player_by_name(player_name) {
 }
 
 function spawn_obj_in_room(file, room_location, new_alias) {
-    new_obj = null;
+    obj = {};
     try {
         obj_redis.incr('objs', function(err, val) {
             if (err) {
@@ -1088,21 +1212,26 @@ function spawn_obj_in_room(file, room_location, new_alias) {
                 realm = tokens[0];
                 obj_file = tokens[1];
                 file_data = fs.readFileSync('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8');
-                new_obj = eval(file_data);
-                new_obj.id = new_obj.name+'#'+val;
+                eval(file_data);
+                obj.id = obj.name+'#'+val;
+                if (typeof rooms[room_location] === 'undefined') {  // room hasn't been loaded yet
+                    load_room(room_location);
+                }
                 if (typeof rooms[room_location].inv === 'undefined') {
-                    rooms[room_location].inv = {};
+                    rooms[room_location].inv = [];
                 }
                 if (new_alias) {
-                    new_obj.alias = new_alias;
+                    obj.alias = new_alias;
                 }
-                rooms[room_location].inv[new_obj.id] = new_obj;
+                rooms[room_location].inv.push(obj);
+                obj.location = {'room':room_location};
+                obj_list[obj.id] = obj;
             }
         });
     } catch(e) {
         debug('SPAWN_OBJ_IN_ROOM: '+e);
     }
-    return new_obj;
+    return obj;
 }
 
 function ghost_player(dead_player) {
@@ -1173,8 +1302,8 @@ function load_and_enter_room(socket, player, dest, magical, args) {
                     }
                     rooms[room.realm+'/'+room.name] = room;
                     enter_room2(socket, player, room, magical, args);
-                    rv = true;
                 });
+                rv = true;
             } else {
                 rooms[room.realm+'/'+room.name] = room;
                 enter_room2(socket, player, room, magical, args);
@@ -1189,6 +1318,47 @@ function load_and_enter_room(socket, player, dest, magical, args) {
     return rv;
 }
 
+function load_room(room_locale) {
+    if (room_locale) {
+        tokens = room_locale.split('/', 2);
+        realm = tokens[0];
+        file = tokens[1];
+        try {
+            fs.readFile('realms/'+realm+'/rooms/'+file+'.js','utf8', function(err, data) {
+                eval(data);
+                multi.exec(function() {
+                    index = 0;
+                    for (var i in room.start_npcs) {
+                        eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                        npc.id = npc.name+'#'+idnums[index];
+                        index++;
+                        if (typeof room.npcs === 'undefined') {
+                            room.npcs = {};
+                        }
+                        // initialize events
+                        if (typeof npc.events !== 'undefined') {
+                            npc.listener = new em();
+                            for (var event_name in npc.events) {
+                                npc.listener.on(event_name, function(event_name,npc_obj, player, args) {
+                                    if (npc_obj.hp > 0) {
+                                        npc_obj.events[event_name](npc_obj,player,args);
+                                    }
+                                });
+                            }
+                        }
+                        room.npcs[npc.id] = npc;
+                    }
+                    rooms[room.realm+'/'+room.name] = room;
+                    rv = true;
+                });
+                rooms[room.realm+'/'+room.name] = room;
+            });
+        } catch(e) {
+            debug(e);
+        }
+    }
+}
+
 function do_look(socket, room, player, hard_look) {
     socket.emit('update', room.short);
     socket.emit('update', room.long);
@@ -1201,13 +1371,14 @@ function do_look(socket, room, player, hard_look) {
 function show_inventory2(socket, player) {
     str = 'Items in '+player.name+'\'s inventory:\n';
     if (typeof player.inv !== 'undefined') {
-        for (var obj_id in player.inv) {
-            if (player.wizard && player.inv[obj_id].invisible) {
-                str += player.inv[obj_id].alias+'('+obj_id+') '+ player.inv[obj_id].origin + ' (invisible)\n';
+        for (var i in player.inv) {
+            obj_id = player.inv[i].id;
+            if (player.wizard && obj_list[obj_id].invisible) {
+                str += obj_list[obj_id].alias+'('+obj_id+') '+ obj_list[obj_id].origin + ' (invisible)\n';
             } else if (player.wizard) {
-                str += player.inv[obj_id].alias+'('+obj_id+') '+ player.inv[obj_id].origin + '\n';
+                str += obj_list[obj_id].alias+'('+obj_id+') '+ obj_list[obj_id].origin + '\n';
             } else {
-                str += player.inv[obj_id].alias+'('+player.inv[obj_id].id+')\n';
+                str += obj_list[obj_id].alias+'('+obj_list[obj_id].id+')\n';
             }
         }
     }
@@ -1298,15 +1469,23 @@ function show_room_inventory2(socket, room, player, hard_look) {
     try {
         str = 'Objects in room:\n';
         if (typeof room.inv !== 'undefined') {
-            for (var key in room.inv) {
-                if (player.wizard && room.inv[key].invisible) {
-                    str+=  room.inv[key].alias+ ' ('+key+') '+ room.inv[key].origin+ ' (invisible)\n';
+            for (var i in room.inv) {
+                key = room.inv[i].id;
+                if (typeof obj_list[key] === 'undefined') {
+                    tokens = room.inv[i].origin.split('/', 2);
+                    realm = tokens[0];
+                    file = tokens[1];
+                    eval(fs.readFileSync('realms/'+realm+'/'+'objs/'+file+'.js','utf8'));
+                    obj_list[key] = obj;
+                }
+                if (player.wizard && obj_list[key].invisible) {
+                    str+=  obj_list[key].alias+ ' ('+key+') '+ obj_list[key].origin+ ' (invisible)\n';
                 } else if (player.wizard) {
-                    str+=  room.inv[key].alias+ ' ('+key+') '+ room.inv[key].origin+ '\n';
+                    str+=  obj_list[key].alias+ ' ('+key+') '+ obj_list[key].origin+ '\n';
                 } else if (hard_look) {
-                    str+=  room.inv[key].alias+ ' ('+key+') '+ room.inv[key].origin+ '\n';
+                    str+=  obj_list[key].alias+ ' ('+key+') '+ obj_list[key].origin+ '\n';
                 } else {
-                    str+=  room.inv[key].alias + '\n';
+                    str+=  obj_list[key].alias + '\n';
                 }
             }
         }

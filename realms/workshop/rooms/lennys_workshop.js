@@ -6,5 +6,5 @@ room = {
     "exits": {
     },
     "persist": 1,
-    "inv": {}
+    "inv": []
 }

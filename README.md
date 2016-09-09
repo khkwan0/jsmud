@@ -28,3 +28,5 @@ git clone https://github.com/khkwan0/jsmud
 - spawn_obj_into_player(obj_file, player)
 - emote_to_room(room, msg)
 - send_to_player(player, msg)
+- get_player_by_name(string name)
+- spawn_obj_in_room(string obj_file, string room_location, string new alias)

@@ -1,7 +1,1 @@
-room = {
-    "name":"account_area",
-    "realm":"main",
-    "short":"Accounting Area",
-    "long":"You are in the accounting area.",
-    "exits":{"n":"main/outside_ted"}
-}
+room = {"exits":{"exit":"main/outside_it"},"name":"it_office","long":"You are in the it office","short":"IT OFfice","realm":"main"}
