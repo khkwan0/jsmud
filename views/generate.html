@@ -49,6 +49,7 @@
                     </form>
                     <button id="add_exit">Add exit</button>
                     <button id="save">Save</button>
+                    <button id="new">New</button>
                 </div>
                 <div id="error">
                 </div>
@@ -63,6 +64,14 @@
                     do_click($(this));
                 });
 
+                $('#new').click(function(data) {
+                    $('#room_name').val('');
+                    $('#room_long').val('');
+                    $('#room_short').val('');
+                    num_exits = 0;
+                    $('#exits').html('');
+                });
+
                 function do_click(clicked) {
                     file = clicked.attr('id');
                     room_name = clicked.attr('filename').slice(0,-3);
@@ -72,8 +81,9 @@
                         },
                         function(room) {
                             change = false;
+                            $('#error').hide();
                             if (room_name != room.name) {
-                                console.log(room.name+' changed');
+//                                console.log(room.name+' changed');
                                 room.name = room_name;
                                 change = true;
                             }
@@ -81,7 +91,7 @@
                             $('#room_name').val(room.name);
                             $('#room_long').val(room.long);
                             $('#room_short').val(room.short);
-                            $('#exits').text('');
+                            $('#exits').html('');
                             num_exits = 0;
                             for (var dir in room.exits) {
                                 $('#exits').append('<div><input class="exit_dir" idx="'+num_exits+'" name="exit['+num_exits+']" size="5" value="'+dir+'" /><input id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="'+room.exits[dir]+'" /></div>');
@@ -104,6 +114,9 @@
                     filename = 'realms/'+$('#realm').val()+'/'+$('#what').val()+'/'+room_name+'.js';
                     if (typeof room_name !== 'undefined' && room_name.length>0) {
                         do_save(true, filename);
+                    } else {
+                        $('#error').text('No room name');
+                        $('#error').show();
                     }
                 });
 
@@ -143,6 +156,7 @@
                                 }
                                 if (!rv.error) {
                                     $('#files').html('');
+                                    $('#error').hide();
                                     for (var i in rv.tree) {
                                         $('#files').append('<li><a href="#" class="edit_me" id="'+rv.tree[i].full_path+'" filename="'+rv.tree[i].file+'">'+rv.tree[i].full_path+'</a></li>');
                                         $('.edit_me').on('click', function() {

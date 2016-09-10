@@ -102,7 +102,7 @@ app.get('/generate', function(req, res) {
             return dir;
         });
     console.log(tree);
-    res.render('generate.html', {'tree':tree});
+    res.render('generate.html', {'tree':tree, 'to_edit':'realms'});
 });
 
 app.get('/generate/:realm', function(req, res) {
@@ -118,7 +118,7 @@ app.get('/generate/:realm', function(req, res) {
         }).map(function(dir) {
             return target+'/'+dir;
         });
-    res.render('generate.html', {'tree':tree});
+    res.render('generate.html', {'tree':tree,'to_edit':false});
 });
 
 app.post('/realm_edit', function(req, res) {
@@ -148,6 +148,11 @@ app.post('/save_room', function(req, res) {
         filename = req.body.filename;
         realm = req.body.realm;
         what = req.body.what;
+        result = {
+            error:false,
+            msg:'ok',
+            tree: {}
+            };
         fs.writeFile(filename, 'room = '+new_room, 'utf8',function(err) {
             if (err) {
                 throw(err);
@@ -168,7 +173,12 @@ app.post('/save_room', function(req, res) {
                                 'long': '',
                                 'exits': {}
                             };
-                            fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
+                            try {
+                                fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
+                            } catch(e) {
+                                result.error = true;
+                                result.msg = 'Looks like a problem writing to realm '+to_realm+'. Does that realm exist?';
+                            }
                         }
                     }
                 }
@@ -180,11 +190,7 @@ app.post('/save_room', function(req, res) {
                         'file': file
                     }
                 });
-                result = {
-                    error:false,
-                    msg:'ok',
-                    tree: dir
-                };
+                result.tree = dir;
                 res.send(JSON.stringify(result));
             }
         });
