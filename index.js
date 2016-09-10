@@ -142,56 +142,62 @@ app.post('/realm_edit', function(req, res) {
     });
 });
 
-app.post('/save_room', function(req, res) {
+app.post('/save_entity', function(req, res) {
     try {
-        new_room = req.body.new_room;
+        new_entity = req.body.new_entity;
         filename = req.body.filename;
         realm = req.body.realm;
         what = req.body.what;
+        var ent_type = '';
         result = {
             error:false,
             msg:'ok',
             tree: {}
             };
-        fs.writeFile(filename, 'room = '+new_room, 'utf8',function(err) {
+        if (what === 'rooms') {
+            ent_type = 'room = ';
+        }
+        fs.writeFile(filename, ent_type+new_entity, 'utf8',function(err) {
             if (err) {
                 throw(err);
             } else {
-                room = JSON.parse(new_room);
-                if (room.exits) {
-                    for (var dir in room.exits) {
-                        tokens = room.exits[dir].split('/', 2);
-                        to_realm = tokens[0];
-                        to_room = tokens[1];
-                        try {
-                            fs.statSync('realms/'+to_realm+'/rooms/'+to_room+'.js');
-                        } catch(e) {
-                            new_room = {
-                                'realm': to_realm,
-                                'name': room.exits[dir],
-                                'short': '',
-                                'long': '',
-                                'exits': {}
-                            };
+                if (what === 'rooms') {
+                    room = JSON.parse(new_entity);
+                    if (room.exits) {
+                        for (var dir in room.exits) {
+                            tokens = room.exits[dir].split('/', 2);
+                            to_realm = tokens[0];
+                            to_room = tokens[1];
                             try {
-                                fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
+                                fs.statSync('realms/'+to_realm+'/rooms/'+to_room+'.js');
                             } catch(e) {
-                                result.error = true;
-                                result.msg = 'Looks like a problem writing to realm '+to_realm+'. Does that realm exist?';
+                                new_room = {
+                                    'realm': to_realm,
+                                    'name': to_room,
+                                    'short': '',
+                                    'long': '',
+                                    'exits': {}
+                                };
+                                try {
+                                    fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
+                                } catch(e) {
+                                    result.error = true;
+                                    result.msg = 'Looks like a problem writing to realm '+to_realm+'. Does that realm exist?';
+                                }
                             }
                         }
                     }
+                    dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
+                        return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
+                    }).map(function(file) {
+                        return {
+                            'full_path':realm+'/'+what+'/'+file,
+                            'file': file
+                        }
+                    });
+                    result.tree = dir;
+                    res.send(JSON.stringify(result));
                 }
-                dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
-                    return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
-                }).map(function(file) {
-                    return {
-                        'full_path':realm+'/'+what+'/'+file,
-                        'file': file
-                    }
-                });
-                result.tree = dir;
-                res.send(JSON.stringify(result));
             }
         });
     } catch(e) {

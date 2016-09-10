@@ -20,36 +20,10 @@
                         {% endif %}
                     {% endfor %}
                     </ul>
-               </div>
-               <div class="col-sm-8">
-                    <form>
-                        <input type="hidden" id="what" value="{{ what }}" readonly />  
-                        <div>
-                            <label>Realm</label><input id="realm" value="{{ realm }}" readonly />
-                        </div>
-                        <div>
-                            <label>Name</label>
-                            <input name="name" id="room_name" value="" placeholder="Name" />
-                        </div>
-                        <div>
-                            <label>Long</label>
-                            <textarea name="long" id="room_long" value="" placeholder="long description"></textarea>
-                        </div>
-                        <div>
-                            <label>Short</label>
-                            <input name="short" id="room_short" value="" placeholder="Short description" />
-                        </div>
-                        <div>
-                            <label>Exits</label>
-                            <div id="exits">
-                            </div>
-                        </div>
-                        <div>
-                        </div>
-                    </form>
-                    <button id="add_exit">Add exit</button>
-                    <button id="save">Save</button>
-                    <button id="new">New</button>
+                </div>
+                <div class="col-sm-8">
+                    <div id="form_area_ctr"> 
+                    </div>
                 </div>
                 <div id="error">
                 </div>
@@ -57,45 +31,101 @@
         </div>
         <script src="/assets/js/jquery.js"></script>
         <script src="/assets/bootstrap/js/bootstrap.min.js"></script>
+        <script src="/assets/js/room_template.js"></script>
         <script>
             $(function() {
                 num_exits = 0;
+
+                {% if what %}
+                var what = '{{ what }}';
+                var template = room_template;
+                {% endif %}
+
+                function load_form(template) {
+                    $('#form_area_ctr').html(template);
+                    $('#realm').val('{{ realm }}');
+                    $('#add_exit').on('click', function(data) {
+                        class_name = 'exit_dir';
+                        count = $('.'+class_name).length;
+                        console.log(count);
+                        str = '<div><input idx="'+count+'" id="exits'+count+'" class="exit_dir" size="5" value="" /><input id="exits_file'+count+'" class="'+class_name+'_file" value="" /></div>';
+                        $('#exits_inp').append(str);
+                    });
+                    $('#save').on('click' ,function(data) {
+                        if (what === 'rooms') {
+                            name = $('#name').val();
+                            filename = 'realms/'+$('#realm').val()+'/'+what+'/'+name+'.js';
+                            if (typeof name!== 'undefined' && name.length>0) {
+                                do_save(true, filename);
+                            } else {
+                                $('#error').text('No room name');
+                                $('#error').show();
+                            }
+                        }
+                    });
+                    $('#new').on('click',function(data) {
+                        if (what === 'rooms') {
+                            load_form(template);
+                        }
+                    });
+                }
+
+                if (typeof what === 'string') {
+                    if (what === 'rooms') {
+                        load_form(template);
+                    }
+                }
+
                 $('.edit_me').click(function(data) {
                     do_click($(this));
                 });
 
-                $('#new').click(function(data) {
-                    $('#room_name').val('');
-                    $('#room_long').val('');
-                    $('#room_short').val('');
-                    num_exits = 0;
-                    $('#exits').html('');
-                });
-
                 function do_click(clicked) {
                     file = clicked.attr('id');
-                    room_name = clicked.attr('filename').slice(0,-3);
                     $.post('/realm_edit',
                         {
                             'the_file': file
                         },
-                        function(room) {
+                        function(entity) {
                             change = false;
-                            $('#error').hide();
-                            if (room_name != room.name) {
-//                                console.log(room.name+' changed');
-                                room.name = room_name;
-                                change = true;
+                            $('#form_area').html('');
+                            for (var key in entity) {
+                                if (typeof entity[key] === 'string') {
+                                    $('#form_area').append('<div><label>'+key+'</label><input id="'+key+'" class="form-control" value="'+entity[key]+'" /></div>');
+                                } else if (typeof entity[key] === 'object') {
+                                    str = '<div id="'+key+'_inp">';
+                                    str += '<label>'+key.toUpperCase()+'</label>';
+                                    count = 0;
+                                    class_name = '';
+                                    for (var subkey in entity[key]) {
+                                        if (key == 'exits') {
+                                            class_name = 'exit_dir';
+                                        }
+                                        str += '<div><input idx="'+count+'" id="'+key+count+'" class="'+class_name+'" size="5" value="'+subkey+'" /><input id="'+key+'_file'+count+'" class="'+class_name+'_file" value="'+entity[key][subkey]+'" /></div>';
+                                        count++;
+                                    }
+                                    str += '</div>';
+                                    $('#form_area').append(str);
+                                    if (key == 'exits') {
+                                        $('#add_exit').on('click', function(data) {
+                                            count = $('.'+class_name).length;
+                                            console.log(count);
+                                            str = '<div><input idx="'+count+'" id="exits'+count+'" class="'+class_name+'" size="5" value="" /><input id="'+key+'_file'+count+'" class="'+class_name+'_file" value="" /></div>';
+                                            $('#exits_inp').append(str);
+                                        });
+                                    }
+                                }
                             }
-                            $('#realm').val(room.realm);
-                            $('#room_name').val(room.name);
-                            $('#room_long').val(room.long);
-                            $('#room_short').val(room.short);
-                            $('#exits').html('');
-                            num_exits = 0;
-                            for (var dir in room.exits) {
-                                $('#exits').append('<div><input class="exit_dir" idx="'+num_exits+'" name="exit['+num_exits+']" size="5" value="'+dir+'" /><input id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="'+room.exits[dir]+'" /></div>');
-                                num_exits++;
+                            if (typeof what !== 'undefined' && what == 'rooms') {
+                                if (typeof entity['exits'] === 'undefined') {
+                                    $('#form_area').append('<button id="add_exit_fly">Add exit</button');
+                                    $('#add_exit_fly').on('click', function(data) {
+                                        class_name = 'exit_dir';
+                                        count = $('.'+class_name).length;
+                                        str = '<div><input idx="'+count+'" id="exits'+count+'" class="'+class_name+'" size="5" value="" /><input id="exits_file'+count+'" class="'+class_name+'_file" value="" /></div>';
+                                        $('#form_area').append(str);
+                                    });
+                                }
                             }
                             if (change) {
                                 do_save(false, 'realms/'+file);
@@ -104,51 +134,33 @@
                     );
                 };
 
-                $('#add_exit').click(function(data) {
-                    $('#exits').append('<div><input class="exit_dir" name="exit['+num_exits+']" idx="'+num_exits+'" size="5" value="" /><input class="exit_dir" id="exit_file'+num_exits+'" name="exit_file['+num_exits+']" value="" /></div>');
-                    num_exits++;
-                });
-
-                $('#save').click(function(data) {
-                    room_name = $('#room_name').val();
-                    filename = 'realms/'+$('#realm').val()+'/'+$('#what').val()+'/'+room_name+'.js';
-                    if (typeof room_name !== 'undefined' && room_name.length>0) {
-                        do_save(true, filename);
-                    } else {
-                        $('#error').text('No room name');
-                        $('#error').show();
-                    }
-                });
-
                 function do_save(clear_fields, filename) {
-                    var new_room = {};
-                    new_room.exits = {};
-                    new_room.name = $('#room_name').val();
-                    new_room.long = $('#room_long').val();
-                    new_room.short = $('#room_short').val();
-                    new_room.realm = $('#realm').val();
-                    realm = $('#realm').val();
-                    what = $('#what').val();
-                    $('.exit_dir').each(function(key, value) {
-                        dir = $(value).val();
-                        new_room.exits[dir] = $('#exit_file'+($(value).attr('idx'))).val();
+                    var new_entity= {};
+                    $('#form_area :input').each(function(idx, inp) {
+                        if ($(inp).attr('class') != 'exit_dir' && $(inp).attr('class') != 'exit_dir_file') {
+                            new_entity[$(inp).attr('id')] = $(inp).val();
+                        }
                     });
-                    $.post('/save_room',
+                    realm = $('#realm').val();
+                    if (what === 'rooms') {
+                        new_entity.exits = {};
+                        $('.exit_dir').each(function(key, value) {
+                            dir = $(value).val();
+                            new_entity.exits[dir] = $('#exits_file'+key).val();
+                        });
+                    }
+                    $.post('/save_entity',
                         {
                             'filename': filename,
-                            'new_room':JSON.stringify(new_room),
+                            'new_entity':JSON.stringify(new_entity),
                             'realm': realm,
                             'what': what
                         }, 
                         function(rv) {
                             if (rv) {
                                 if (clear_fields && !rv.error) {
-                                    $('#room_name').val('');
-                                    $('#room_long').val('');
-                                    $('#room_short').val('');
-                                    $('#realm').val('');
-                                    num_exits = 0;
-                                    $('#exits').html('');
+                                    $('#form_area').html('');
+                                    load_form(template);
                                 }
                                 if (rv.error) {
                                     $('#error').text(rv.msg);
@@ -168,6 +180,7 @@
                         },'json'
                     );
                 }
+
             });
         </script>
     </body>
