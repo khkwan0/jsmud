@@ -47,7 +47,6 @@
                     $('#add_exit').on('click', function(data) {
                         class_name = 'exit_dir';
                         count = $('.'+class_name).length;
-                        console.log(count);
                         str = '<div><input idx="'+count+'" id="exits'+count+'" class="exit_dir" size="5" value="" /><input id="exits_file'+count+'" class="'+class_name+'_file" value="" /></div>';
                         $('#exits_inp').append(str);
                     });
@@ -109,7 +108,6 @@
                                     if (key == 'exits') {
                                         $('#add_exit').on('click', function(data) {
                                             count = $('.'+class_name).length;
-                                            console.log(count);
                                             str = '<div><input idx="'+count+'" id="exits'+count+'" class="'+class_name+'" size="5" value="" /><input id="'+key+'_file'+count+'" class="'+class_name+'_file" value="" /></div>';
                                             $('#exits_inp').append(str);
                                         });
