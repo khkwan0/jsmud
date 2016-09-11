@@ -102,7 +102,7 @@ app.get('/generate', function(req, res) {
             return dir;
         });
     console.log(tree);
-    res.render('generate.html', {'tree':tree, 'to_edit':'realms'});
+    res.render('generate.html', {'tree':tree, 'to_edit':'realms','what':''});
 });
 
 app.get('/generate/:realm', function(req, res) {
@@ -118,7 +118,7 @@ app.get('/generate/:realm', function(req, res) {
         }).map(function(dir) {
             return target+'/'+dir;
         });
-    res.render('generate.html', {'tree':tree,'to_edit':false});
+    res.render('generate.html', {'tree':tree,'to_edit':false,'what':''});
 });
 
 app.post('/realm_edit', function(req, res) {
@@ -157,6 +157,9 @@ app.post('/save_entity', function(req, res) {
         if (what === 'rooms') {
             ent_type = 'room = ';
         }
+        if (what === 'objs') {
+            ent_type = 'obj = ';
+        }
         fs.writeFile(filename, ent_type+new_entity, 'utf8',function(err) {
             if (err) {
                 throw(err);
@@ -187,17 +190,17 @@ app.post('/save_entity', function(req, res) {
                             }
                         }
                     }
-                    dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
-                        return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
-                    }).map(function(file) {
-                        return {
-                            'full_path':realm+'/'+what+'/'+file,
-                            'file': file
-                        }
-                    });
-                    result.tree = dir;
-                    res.send(JSON.stringify(result));
                 }
+                dir = fs.readdirSync('realms/'+realm+'/'+what).filter(function(file) {
+                    return fs.statSync('realms/'+realm+'/'+what+'/'+file).isFile();
+                }).map(function(file) {
+                    return {
+                        'full_path':realm+'/'+what+'/'+file,
+                        'file': file
+                    }
+                });
+                result.tree = dir;
+                res.send(JSON.stringify(result));
             }
         });
     } catch(e) {

@@ -32,47 +32,59 @@
         <script src="/assets/js/jquery.js"></script>
         <script src="/assets/bootstrap/js/bootstrap.min.js"></script>
         <script src="/assets/js/room_template.js"></script>
+        <script src="/assets/js/obj_template.js"></script>
         <script>
             $(function() {
                 num_exits = 0;
 
                 {% if what %}
                 var what = '{{ what }}';
-                var template = room_template;
+                if (what === 'rooms') {
+                    var template = room_template;
+                } else if (what === 'objs') {
+                    var template = obj_template;
+                }
                 {% endif %}
 
                 function load_form(template) {
                     $('#form_area_ctr').html(template);
                     $('#realm').val('{{ realm }}');
-                    $('#add_exit').on('click', function(data) {
-                        class_name = 'exit_dir';
-                        count = $('.'+class_name).length;
-                        str = '<div><input idx="'+count+'" id="exits'+count+'" class="exit_dir" size="5" value="" /><input id="exits_file'+count+'" class="'+class_name+'_file" value="" /></div>';
-                        $('#exits_inp').append(str);
-                    });
+                    if (what === 'rooms') {
+                        $('#add_exit').on('click', function(data) {
+                            class_name = 'exit_dir';
+                            count = $('.'+class_name).length;
+                            str = '<div><input idx="'+count+'" id="exits'+count+'" class="exit_dir" size="5" value="" /><input id="exits_file'+count+'" class="'+class_name+'_file" value="" /></div>';
+                            $('#exits_inp').append(str);
+                        });
+                    }
+                    if (what === 'objs') {
+                        if (typeof what !== 'undefined' && what === 'objs') {
+                            $('#name').on('keyup', function(data) {
+                                $('#origin').val($('#realm').val()+'/'+$('#name').val());
+                            });
+                        }
+                        $('#add_inv').on('click', function(data) {
+                            str = '<div><input class="inv" value="" /></div>';
+                            $('#inv_inp').append(str);
+                        });
+                    }
                     $('#save').on('click' ,function(data) {
-                        if (what === 'rooms') {
-                            name = $('#name').val();
-                            filename = 'realms/'+$('#realm').val()+'/'+what+'/'+name+'.js';
-                            if (typeof name!== 'undefined' && name.length>0) {
-                                do_save(true, filename);
-                            } else {
-                                $('#error').text('No room name');
-                                $('#error').show();
-                            }
+                        name = $('#name').val();
+                        filename = 'realms/'+$('#realm').val()+'/'+what+'/'+name+'.js';
+                        if (typeof name!== 'undefined' && name.length>0) {
+                            do_save(true, filename);
+                        } else {
+                            $('#error').text('No name');
+                            $('#error').show();
                         }
                     });
                     $('#new').on('click',function(data) {
-                        if (what === 'rooms') {
-                            load_form(template);
-                        }
+                        load_form(template);
                     });
                 }
 
                 if (typeof what === 'string') {
-                    if (what === 'rooms') {
-                        load_form(template);
-                    }
+                    load_form(template);
                 }
 
                 $('.edit_me').click(function(data) {
@@ -89,19 +101,30 @@
                             change = false;
                             $('#form_area').html('');
                             for (var key in entity) {
-                                if (typeof entity[key] === 'string') {
-                                    $('#form_area').append('<div><label>'+key+'</label><input id="'+key+'" class="form-control" value="'+entity[key]+'" /></div>');
+                                if (typeof entity[key] === 'string' || typeof entity[key] === 'number') {
+                                    if (key === 'long') {
+                                        $('#form_area').append('<div><label>'+key+'</label><textarea id="'+key+'" class="form_">'+entity[key]+'</textarea></div>');
+                                    } else {
+                                        $('#form_area').append('<div><label>'+key+'</label><input id="'+key+'" class="form_" value="'+entity[key]+'" /></div>');
+                                    }
                                 } else if (typeof entity[key] === 'object') {
                                     str = '<div id="'+key+'_inp">';
-                                    str += '<label>'+key.toUpperCase()+'</label>';
+                                    str += '<label>'+key+'</label>';
                                     count = 0;
-                                    class_name = '';
-                                    for (var subkey in entity[key]) {
-                                        if (key == 'exits') {
-                                            class_name = 'exit_dir';
+                                    class_name = key;
+                                    if (what === 'rooms') {
+                                        for (var subkey in entity[key]) {
+                                            if (key == 'exits') {
+                                                class_name = 'exit_dir';
+                                            }
+                                            str += '<div><input idx="'+count+'" id="'+key+count+'" class="'+class_name+'" size="5" value="'+subkey+'" /><input id="'+key+'_file'+count+'" class="'+class_name+'_file" value="'+entity[key][subkey]+'" /></div>';
+                                            count++;
                                         }
-                                        str += '<div><input idx="'+count+'" id="'+key+count+'" class="'+class_name+'" size="5" value="'+subkey+'" /><input id="'+key+'_file'+count+'" class="'+class_name+'_file" value="'+entity[key][subkey]+'" /></div>';
-                                        count++;
+                                    }
+                                    if (what === 'objs') {
+                                        for (var i in entity[key]) {
+                                            str += '<div><input class="'+key+'" value="'+entity[key][i]+'" /></div>';
+                                        }
                                     }
                                     str += '</div>';
                                     $('#form_area').append(str);
@@ -112,6 +135,18 @@
                                             $('#exits_inp').append(str);
                                         });
                                     }
+                                    if (key == 'inv') {
+                                        $('#add_inv').on('click',function(data) {
+                                            str = '<div><input class="'+class_name+'" value="" /></div>';
+                                        });
+                                    }
+                                } else if (typeof entity[key] === 'boolean') {
+                                    if (entity[key]) {
+                                        str = '<div><label>'+key+'<input checked class="form_" type="checkbox" id="'+key+'" /></label></div>';
+                                    } else {
+                                        str = '<div><label>'+key+'<input class="form_" type="checkbox" id="'+key+'" /></label></div>';
+                                    }
+                                    $('#form_area').append(str);
                                 }
                             }
                             if (typeof what !== 'undefined' && what == 'rooms') {
@@ -125,6 +160,13 @@
                                     });
                                 }
                             }
+                            if (typeof what !== 'undefined' && what === 'objs') {
+                                $('#name').on('keyup', function(data) {
+                                    $('#origin').val($('#realm').val()+'/'+$('#name').val());
+                                });
+                                if (typeof entity['inv'] === 'undefined') {
+                                }
+                            }
                             if (change) {
                                 do_save(false, 'realms/'+file);
                             }
@@ -135,8 +177,16 @@
                 function do_save(clear_fields, filename) {
                     var new_entity= {};
                     $('#form_area :input').each(function(idx, inp) {
-                        if ($(inp).attr('class') != 'exit_dir' && $(inp).attr('class') != 'exit_dir_file') {
-                            new_entity[$(inp).attr('id')] = $(inp).val();
+                        if ($(inp).attr('class') != 'exit_dir' && $(inp).attr('class') != 'exit_dir_file' && $(inp).attr('class') != 'inv') {
+                            if ($(inp).attr('type') === 'checkbox') {
+                                if ($(inp).is(':checked')) {
+                                    new_entity[$(inp).attr('id')] = true;
+                                } else {
+                                    new_entity[$(inp).attr('id')] = false;
+                                }
+                            } else {
+                                new_entity[$(inp).attr('id')] = $(inp).val();
+                            }
                         }
                     });
                     realm = $('#realm').val();
@@ -145,6 +195,14 @@
                         $('.exit_dir').each(function(key, value) {
                             dir = $(value).val();
                             new_entity.exits[dir] = $('#exits_file'+key).val();
+                        });
+                    }
+                    if (what === 'objs') {
+                        new_entity.inv = [];
+                        $('.inv').each(function(key, value) {
+                             if ($(value).val()) {
+                                 new_entity.inv.push($(value).val());
+                             }
                         });
                     }
                     $.post('/save_entity',
