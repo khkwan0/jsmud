@@ -74,6 +74,8 @@ var valid_commands = {
     ,'quest': 'show your quest log.'
     ,'q': 'show your quest log.'
     ,'stats': 'see your stats'
+    ,'email': 'set recovery email'
+    ,'passwd': 'change your passwd- usage:  passwd <new_password>'
     ,'logout': 'save and quit'
     ,'disconnect': 'save and quit'
     ,'quit': 'save and quit'
@@ -253,7 +255,26 @@ app.get('/generate/:realm/:what', function(req, res) {
     res.render('generate.html', {'tree':tree, 'realm':realm, 'what':what});
 });
 
+function check_if_logged_in(socket) {
+    // check if already connected
+    for (var i in player_list) {
+        if (player_list[i].socket_id === socket.id) {
+            player_redis.set(player_list[i].name, JSON.stringify(player_list[i]));
+            if (!player_list[i].ninja_mode) {
+                socket.broadcast.to(player_list[i].location).emit('update', player_list[i].name + ' disconnected.');
+                try {
+                    delete rooms[player_list[i].location].who[player_list[i].id];
+                } catch(e) {
+                    debug(e);
+                }
+            }
+            delete player_list[i];
+        }
+    }
+}
+
 io.on('connection', function(socket) {
+        /*
     var player = {
         "id":null,
         "name":0,
@@ -275,56 +296,56 @@ io.on('connection', function(socket) {
         "email":'',
         "password":'',
         "xp":0,
-        "inv": {}
+        "inv": []
     }
+    */
+    player = {};
 
     player_redis.select(config.redis.player_db, function() {
         socket.on('login', function(msg) {
-            // check if already connected
-            for (var i in player_list) {
-                if (player_list[i].socket_id === socket.id) {
-                    player_redis.set(player_list[i].name, JSON.stringify(player_list[i]));
-                    if (!player_list[i].ninja_mode) {
-                        socket.broadcast.to(player_list[i].location).emit('update', player_list[i].name + ' disconnected.');
-                        try {
-                            delete rooms[player_list[i].location].who[player_list[i].id];
-                        } catch(e) {
-                            debug(e);
-                        }
-                    }
-                    delete player_list[i];
-                }
-            }
             args = JSON.parse(msg);
-            player.name = args.args[0];
-            if (typeof player.name !== 'undefined') {
-                player_redis.get(player.name, function(err, data) {
+            player_name = args.args[0];
+            password = args.args[1];
+            if (typeof player_name !== 'undefined') {
+                player_redis.get(player_name, function(err, data) {
                     if (data) {
                         player = JSON.parse(data);
-                        player.socket_id = socket.id;
-                        if (!player.id) {
-                            player.id = uuid.v4();
-                        }
-                        if (!player.alias) {
-                            player.alias = player.name;
-                        }
-                        if (!player.gender) {
-                            player.gender = null;
-                            player.possessive_pronoun = 'their';
-                            player.direct_object_pronoun = 'them';
-                            player.subject_pronoun = player.name;
-                        }
-                        if (typeof player.xp === 'undefined') {
-                            player.xp = 0;
-                        }
-                        player.inv = [];
-                        player_list[player.id] = player;
-                        if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
-                            load_and_enter_room(socket, player, 'main/outside_ted', false, args);
+                        console.log(player.password);
+                        if (typeof player.password === 'undefined' || player.password == '' || player.password === password) {
+                            check_if_logged_in(socket);
+                            player.socket_id = socket.id;
+                            if (!player.id) {
+                                player.id = uuid.v4();
+                            }
+                            if (!player.alias) {
+                                player.alias = player.name;
+                            }
+                            if (!player.gender) {
+                                player.gender = null;
+                                player.possessive_pronoun = 'their';
+                                player.direct_object_pronoun = 'them';
+                                player.subject_pronoun = player.name;
+                            }
+                            if (typeof player.xp === 'undefined') {
+                                player.xp = 0;
+                            }
+                            player.inv = [];
+                            player_list[player.id] = player;
+                            if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
+                                load_and_enter_room(socket, player, 'main/outside_ted', false, args);
+                            }
+                        } else {
+                            socket.emit('update','Incorrect password');
+                            player = {};
                         }
                     } else {
                         // initialize new player
                         player.id = uuid.v4();
+                        player.name = player_name;
+                        if (typeof password !== 'undefined') {
+                            player.password = password;
+                        }
+                        player.email = '';
                         player.alias = player.name;
                         player.gagged = false;
                         player.level = 1;
@@ -349,14 +370,14 @@ io.on('connection', function(socket) {
                         player.quests.completed = {};
                         player.inv = [];
 
-
                         player_list[player.id] = player;
                         load_and_enter_room(socket, player, player.location, false, args);
                     }
                     debug(player.name + ' connected.');
                 });
             } else {
-                socket.emit('update','login <username>');
+                socket.emit('update','login <username> <password>');
+                socket.emit('update','recover <username>');
             }
         });
         socket.on('disconnect', function() {
@@ -1195,6 +1216,30 @@ io.on('connection', function(socket) {
                         str += '\nXP: '+player.xp;
                         str += '\nGENDER: '+player.gender;
                         socket.emit('update', str);
+                    }
+                    if (command === 'email') {
+                        if (typeof args.args[0] !== 'undefined') {
+                            player.email = args.args[0];
+                            player_redis.set(player.name, JSON.stringify(player));
+                            socket.emit('update','Email: '+player.email);
+                        } else {
+                            socket.emit('update','Email: '+player.email);
+                        }
+                    }
+                    if (command === 'passwd') {
+                        if (typeof args.args[0] != 'undefined') {
+                            player.password = args.args[0];
+                            player_redis.set(player.name, JSON.stringify(player), function(err) {
+                                if (err) {
+                                    socket.emit('update', 'passwd update err: '+err);
+                                    debug(err);
+                                } else {
+                                    socket.emit('update','updated password');
+                                }
+                            });
+                        } else {
+                            socket.emit('update','usage: passwd <new_password>');
+                        }
                     }
                     if (command === 'help') {
                         str = 'You can:\n';
