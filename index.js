@@ -310,7 +310,6 @@ io.on('connection', function(socket) {
                 player_redis.get(player_name, function(err, data) {
                     if (data) {
                         player = JSON.parse(data);
-                        console.log(player.password);
                         if (typeof player.password === 'undefined' || player.password == '' || player.password === password) {
                             check_if_logged_in(socket);
                             player.socket_id = socket.id;
@@ -334,6 +333,7 @@ io.on('connection', function(socket) {
                             if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
                                 load_and_enter_room(socket, player, config.starting_room, false, args);
                             }
+                            debug(player.name + ' connected.');
                         } else {
                             socket.emit('update','Incorrect password');
                             player = {};
@@ -355,8 +355,8 @@ io.on('connection', function(socket) {
                         player.socket_id = socket.id;
                         player.wizard = false;
                         player.realm = 'main';
-                        player.room_name = 'outside_ted';
-                        player.location = 'main/outside_ted';
+                        player.room_name = '';
+                        player.location = config.starting_room;
                         player.ninja_mode = false;
                         player.ghost = false;
                         player.gender = null;
@@ -372,8 +372,8 @@ io.on('connection', function(socket) {
 
                         player_list[player.id] = player;
                         load_and_enter_room(socket, player, player.location, false, args);
+                        debug(player.name + ' connected.');
                     }
-                    debug(player.name + ' connected.');
                 });
             } else {
                 socket.emit('update','login <username> <password>');
