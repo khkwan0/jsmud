@@ -97,9 +97,9 @@
                                 count = $('.'+key).length;
                                 if (key === 'exits' || key === 'events') {
                                     if (key === 'exits') {
-                                        str = '<div><input idx="'+count+'" id="'+key+count+'" class="'+key+'" size="5" value="" /><textarea id="'+key+count+'_file" class="'+key+'_file">{{realm}}/</textarea></div>';
+                                        str = '<div><input placeholder="exit direction" idx="'+count+'" id="'+key+count+'" class="'+key+'" size="12" value="" /><textarea id="'+key+count+'_file" class="'+key+'_file">{{realm}}/</textarea></div>';
                                     } else {
-                                        str = '<div><input idx="'+count+'" id="'+key+count+'" class="'+key+'" size="5" value="" /><textarea id="'+key+count+'_file" class="'+key+'_file"></textarea></div>';
+                                        str = '<div><input placeholder="event trigger" idx="'+count+'" id="'+key+count+'" class="'+key+'" size="12" value="" /><textarea id="'+key+count+'_file" class="'+key+'_file"></textarea></div>';
                                     }
                                 } else {
                                     str = '<div><input id="'+key+count+'" class="'+key+'" value="main/" /></div>';
