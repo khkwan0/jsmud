@@ -142,6 +142,20 @@ app.post('/realm_edit', function(req, res) {
     });
 });
 
+function get_opp(dir) {
+    if (dir == 'n') return 's';
+    if (dir == 's') return 'n';
+    if (dir == 'e') return 'w';
+    if (dir == 'w') return 'e';
+    if (dir == 'enter') return 'exit';
+    if (dir == 'exit') return 'enter';
+    if (dir == 'ne') return 'sw';
+    if (dir == 'se') return 'nw';
+    if (dir == 'sw') return 'ne';
+    if (dir == 'nw') return 'se';
+    return null;
+}
+
 app.post('/save_entity', function(req, res) {
     try {
         new_entity = req.body.new_entity;
@@ -174,18 +188,24 @@ app.post('/save_entity', function(req, res) {
                             try {
                                 fs.statSync('realms/'+to_realm+'/rooms/'+to_room+'.js');
                             } catch(e) {
+                                opp_dir = get_opp(dir);
                                 new_room = {
                                     'realm': to_realm,
                                     'name': to_room,
                                     'short': '',
                                     'long': '',
-                                    'exits': {}
                                 };
+                                if (opp_dir) {
+                                    new_room.exits = {};
+                                    new_room.exits[opp_dir] = room.realm+'/'+room.name;
+                                } else {
+                                    new_room.exits = {}
+                                }
                                 try {
                                     fs.writeFileSync('realms/'+to_realm+'/rooms/'+to_room+'.js', 'room = '+JSON.stringify(new_room), 'utf8');
                                 } catch(e) {
                                     result.error = true;
-                                    result.msg = 'Looks like a problem writing to realm '+to_realm+'. Does that realm exist?';
+                                    result.msg = 'Looks like a problem writing to realm/'+to_realm+'/rooms/'+to_room+'.js  Does that realm exist?';
                                 }
                             }
                         }
