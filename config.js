@@ -9,4 +9,5 @@ config.redis = {
     obj_db:4  // redis db number - arbitrary
 }
 
+config.starting_room = 'main/outside_ted';
 module.exports = config;

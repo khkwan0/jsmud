@@ -332,7 +332,7 @@ io.on('connection', function(socket) {
                             player.inv = [];
                             player_list[player.id] = player;
                             if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
-                                load_and_enter_room(socket, player, 'main/outside_ted', false, args);
+                                load_and_enter_room(socket, player, config.starting_room, false, args);
                             }
                         } else {
                             socket.emit('update','Incorrect password');
