@@ -380,6 +380,24 @@ io.on('connection', function(socket) {
                 socket.emit('update','recover <username>');
             }
         });
+        socket.on('do_disconnect', function() {
+            if (typeof rooms[player.location] !== 'undefined') {
+                try {
+                    player_redis.set(player.name,JSON.stringify(player));
+                    room = rooms[player.location];
+                    room_id = room.realm + '/' + room.name;
+                    socket.broadcast.to(room_id).emit('update', player.name + ' disconnected.');
+                    delete room.who[player.id];
+                    delete player_list[player.id];
+                    if (room.realm === 'workshop') {
+                        player_redis.set(room_id, JSON.stringify(room));
+                    }
+                    player = {};
+                } catch(e) {
+                    debug('DISCONNECT: '+e);
+                }
+            }
+        });
         socket.on('disconnect', function() {
             if (typeof rooms[player.location] !== 'undefined') {
                 try {

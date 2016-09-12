@@ -58,7 +58,8 @@
 
                 socket.on('loopback', function(msg) {
                     if (msg === 'disconnect') {
-                        socket.emit('disconnect');
+                        term.set_prompt('anon> ');
+                        socket.emit('do_disconnect');
                     } else {
                         socket.emit('internal', msg);
                     }
