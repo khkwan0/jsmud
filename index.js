@@ -181,7 +181,7 @@ app.post('/save_entity', function(req, res) {
                 throw(err);
             } else {
                 if (what === 'rooms') {
-                    room = JSON.parse(new_entity);
+                    let room = JSON.parse(new_entity);
                     if (room.exits) {
                         for (var dir in room.exits) {
                             tokens = room.exits[dir].split('/', 2);
@@ -274,6 +274,7 @@ function check_if_logged_in(socket) {
 }
 
 io.on('connection', function(socket) {
+        console.log(socket.id);
         /*
     var player = {
         "id":null,
@@ -299,7 +300,7 @@ io.on('connection', function(socket) {
         "inv": []
     }
     */
-    player = {};
+    let player = {};
 
     player_redis.select(config.redis.player_db, function() {
         socket.on('login', function(msg) {
@@ -328,7 +329,6 @@ io.on('connection', function(socket) {
                             if (typeof player.xp === 'undefined') {
                                 player.xp = 0;
                             }
-                            player.inv = [];
                             player_list[player.id] = player;
                             if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
                                 load_and_enter_room(socket, player, config.starting_room, false, args);
@@ -1299,7 +1299,7 @@ function get_player_by_name(player_name) {
     return target;
 }
 
-function spawn_obj_in_room(file, room_location, new_alias) {
+function spawn_obj_in_room(file, room_location, new_alias, new_short) {
     obj = {};
     try {
         obj_redis.incr('objs', function(err, val) {
@@ -1309,21 +1309,29 @@ function spawn_obj_in_room(file, room_location, new_alias) {
                 tokens = file.split('/',2);
                 realm = tokens[0];
                 obj_file = tokens[1];
-                file_data = fs.readFileSync('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8');
-                eval(file_data);
-                obj.id = obj.name+'#'+val;
-                if (typeof rooms[room_location] === 'undefined') {  // room hasn't been loaded yet
-                    load_room(room_location);
-                }
-                if (typeof rooms[room_location].inv === 'undefined') {
-                    rooms[room_location].inv = [];
-                }
-                if (new_alias) {
-                    obj.alias = new_alias;
-                }
-                rooms[room_location].inv.push(obj);
-                obj.location = {'room':room_location};
-                obj_list[obj.id] = obj;
+                fs.readFile('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8', function(err, file_data) {
+                    if (err) {
+                        console.log('cannot spawn object '+realm+'/'+obj_file);
+                        return err;
+                    }
+                    eval(file_data);
+                    obj.id = obj.name+'#'+val;
+                    if (new_short) {
+                        obj.short = new_short;
+                    }
+                    if (typeof rooms[room_location] === 'undefined') {  // room hasn't been loaded yet
+                        load_room(room_location);
+                    }
+                    if (typeof rooms[room_location].inv === 'undefined') {
+                        rooms[room_location].inv = [];
+                    }
+                    if (new_alias) {
+                        obj.alias = new_alias;
+                    }
+                    rooms[room_location].inv.push(obj);
+                    obj.location = {'room':room_location};
+                    obj_list[obj.id] = obj;
+                });
             }
         });
     } catch(e) {
@@ -1337,7 +1345,7 @@ function ghost_player(dead_player) {
     dead_player.alias = 'Ghost of '+ dead_player.name;
     dp_socket = io.sockets.connected[dead_player.socket_id];
     dp_socket.emit('prompt', dead_player.name+' (GHOST) (0/'+dead_player.max_hp+'):'+dead_player.location+'> ');
-    spawn_obj_in_room('main/corpse', dead_player.location, dead_player.name+"'s corpse");
+    spawn_obj_in_room('main/corpse', dead_player.location, dead_player.name+"'s corpse", "Corpse of "+dead_player.name, "This is the corpse of "+dead_player.name+".  The corpse's eyes open staring at nothing.");
 }
 
 function move_player2(socket, player, dest, exit_msg, magical, args) {

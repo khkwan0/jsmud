@@ -74,9 +74,9 @@
                                 str += '<button class="add" key="'+key+'" id="add_'+key+'">Add '+key+'</button>';
                             } else if (typeof entity[key] === 'boolean') {
                                 if (entity[key]) {
-                                    str += '<input checked id="'+key+'" type="checkbox" class="'+key+'" />';
+                                    str += '<input checked id="'+key+'" type="checkbox" class="'+key+'" style="visibility:visible" />';
                                 } else {
-                                    str += '<input id="'+key+'" type="checkbox" class="'+key+'" />';
+                                    str += '<input id="'+key+'" type="checkbox" class="'+key+'" style="visibility:visible" />';
                                 }
                             } else {
                                 if (key === 'long') {
