@@ -51,7 +51,7 @@
                 {% endif %}
 
                 function render_inputs(entity) {
-                    if (what === 'npcs' || what === 'objs' || what === 'rooms') {
+                    if (what === 'npcs' || what === 'objs' || what === 'rooms' || what === 'quests') {
                         entity = eval(entity);
                         str = '<div id="form_area">';
                         for (var key in entity) {
@@ -62,7 +62,7 @@
                                 count = 0;
                                     for (var subkey in entity[key]) {
                                         if ($.isArray(entity[key])) {
-                                            str += '<div><input class="'+key+'" value="'+entity[key][subkey]+'" /></div>';
+                                            str += '<div><input id="'+key+count+'" class="'+key+'" value="'+entity[key][subkey]+'" /></div>';
                                         } else {
                                             str += '<div>';
                                             str += '<input class="'+key+'" id="'+key+count+'" value="'+subkey+'" /><textarea class="'+key+'_file" id="'+key+count+'_file">'+entity[key][subkey]+'</textarea>';
@@ -161,7 +161,7 @@
                 function do_save(clear_fields, filename) {
                     var new_entity= {};
                     $('#form_area :input').each(function(idx, inp) {
-                        if ($(inp).attr('class') != 'exits' && $(inp).attr('class') != 'exits_file' && $(inp).attr('class') != 'inv' && $(inp).attr('class') != 'start_npcs' && $(inp).attr('class') != 'events' && $(inp).attr('class') !== 'add') {
+                        if ($(inp).attr('class') != 'exits' && $(inp).attr('class') != 'exits_file' && $(inp).attr('class') != 'inv' && $(inp).attr('class') != 'start_inv' && $(inp).attr('class') != 'start_npcs' && $(inp).attr('class') != 'events' && $(inp).attr('class') !== 'add') {
                             if ($(inp).attr('type') === 'checkbox') {
                                 if ($(inp).is(':checked')) {
                                     new_entity[$(inp).attr('id')] = true;
@@ -177,6 +177,7 @@
                     if (what === 'rooms') {
                         new_entity.exits = {};
                         new_entity.start_npcs = [];
+                        new_entity.start_inv = [];
                         count = 0;
                         $('.exits').each(function(key, value) {
                             dir = $(value).val();
@@ -186,8 +187,10 @@
                         $('.start_npcs').each(function(key, value) {
                             new_entity.start_npcs.push($(value).val());
                         });
+                        $('.start_inv').each(function(key, value) {
+                            new_entity.start_inv.push($(value).val());
+                        });
                     }
-                    new_entity.inv = [];
                     new_entity.events = {};
                     count = 0;
                     $('.events').each(function(key, value) {
@@ -195,11 +198,14 @@
                         num_entity.events[trigger] = $('#events'+count+'_file').val();
                         count++;
                     });
-                    $('.inv').each(function(key, value) {
-                         if ($(value).val()) {
-                             new_entity.inv.push($(value).val());
-                         }
-                    });
+                    if (what !== 'rooms') {
+                        new_entity.start_inv = [];
+                        $('.start_inv').each(function(key, value) {
+                             if ($(value).val()) {
+                                 new_entity.start_inv.push($(value).val());
+                             }
+                        });
+                    }
                     console.log(new_entity);
                     $.post('/save_entity',
                         {

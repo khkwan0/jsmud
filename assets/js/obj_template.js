@@ -17,5 +17,5 @@
     "is_bag": false,
     "max_items": 0,
     "max_weight": 0,
-    "inv": []
+    "start_inv": [],
 }

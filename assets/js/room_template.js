@@ -5,6 +5,6 @@ room_template = {
     'short': "",
     'exits': {},
     'start_npcs': [],
-    'inv': [],
+    'start_inv': [],
     'events': {}
 }
