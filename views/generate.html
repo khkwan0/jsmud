@@ -34,6 +34,7 @@
         <script src="/assets/js/room_template.js"></script>
         <script src="/assets/js/obj_template.js"></script>
         <script src="/assets/js/npc_template.js"></script>
+        <script src="/assets/js/quest_template.js"></script>
         <script>
             $(function() {
                 num_exits = 0;
@@ -46,12 +47,14 @@
                     var template = obj_template;
                 } else if (what === 'npcs') {
                     var template = npc_template;
+                } else if (what === 'quests') {
+                    var template = quest_template;
                 }
 
                 {% endif %}
 
                 function render_inputs(entity) {
-                    if (what === 'npcs' || what === 'objs' || what === 'rooms') {
+                    if (what === 'npcs' || what === 'objs' || what === 'rooms' || what === 'quests') {
                         entity = eval(entity);
                         str = '<div id="form_area">';
                         for (var key in entity) {
