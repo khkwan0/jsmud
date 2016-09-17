@@ -12,6 +12,7 @@ var em = require('events');
 var serve_index = require('serve-index');
 var dir_tree = require('directory-tree');
 var bodyParser = require('body-parser');
+var async = require('async');
 var config = require('./config');
 
 app.engine('html',  cons.swig);
@@ -330,9 +331,7 @@ io.on('connection', function(socket) {
                                 player.xp = 0;
                             }
                             player_list[player.id] = player;
-                            if (!load_and_enter_room(socket, player, player.location, false, args)) {  // this can happen if a wizard screws up their code for the room and they are in it
-                                load_and_enter_room(socket, player, config.starting_room, false, args);
-                            }
+                            load_and_enter_room(socket, player, player.location, false, args);
                             debug(player.name + ' connected.');
                         } else {
                             socket.emit('update','Incorrect password');
@@ -592,6 +591,11 @@ io.on('connection', function(socket) {
                                         target_obj = room.inv[obj_id];
                                         if (!target_obj.invisible || player.wizard) {
                                             to_emote = target_obj.short+'\n'+target_obj.long;
+                                            if (typeof obj_list[target_obj.id].inv !== 'undefined') {
+                                                for (var i in obj_list[target_obj.id].inv) {
+                                                    to_emote += '\n'+obj_list[target_obj.id].inv[i].alias + '('+obj_list[target_obj.id].inv[i].id+')';
+                                                }
+                                            }
                                             match++;
                                             if (!player.ninja_mode && !target_obj.invisible) {
                                                 socket.broadcast.to(room_id).emit('update', player.name + ' examines ' + target);
@@ -1363,65 +1367,155 @@ function move_player2(socket, player, dest, exit_msg, magical, args) {
 }
 
 function load_and_enter_room(socket, player, dest, magical, args) {
-    rv = false;
     if (typeof rooms[dest] !== 'undefined') {
         room = rooms[dest];
         enter_room2(socket, player, room, magical, args);
-        rv = true;
     } else {
         area = dest.split('/',2);
         realm = area[0];
         room_name = area[1];
         debug('LOAD room:' + realm+'/'+room_name);
-        try {
-            eval(fs.readFileSync('./realms/'+realm+'/rooms/'+room_name+'.js','utf8'));
-            if (typeof room.start_npcs !== 'undefined') {
-                multi = obj_redis.multi();
-                room.npcs = {};
-                idnums = [];
-                for (var i in room.start_npcs) {
-                    multi.incr('npc_id', function(err, data) {
-                       idnums.push(data); 
-                    });
-                }
-                multi.exec(function() {
-                    index = 0;
-                    for (var i in room.start_npcs) {
-                        eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
-                        npc.id = npc.name+'#'+idnums[index];
-                        index++;
-                        if (typeof room.npcs === 'undefined') {
-                            room.npcs = {};
-                        }
-                        // initialize events
-                        if (typeof npc.events !== 'undefined') {
-                            npc.listener = new em();
-                            for (var event_name in npc.events) {
-                                npc.listener.on(event_name, function(event_name,npc_obj, player, args) {
-                                    if (npc_obj.hp > 0) {
-                                        npc_obj.events[event_name](npc_obj,player,args);
-                                    }
-                                });
-                            }
-                        }
-                        room.npcs[npc.id] = npc;
-                    }
+        async.series([
+            function(lneroom_callback) {
+                load_room3(realm, room_name, lneroom_callback);
+            },
+            function(lneroom_callback) {
+                load_room_npcs(room, lneroom_callback);
+            },
+            function(lneroom_callback) {
+                load_room_inv(room, lneroom_callback);
+            }
+            ],
+            function(err, results) {
+                if (err) {
+                    debug(err);
+                } else {
                     rooms[room.realm+'/'+room.name] = room;
                     enter_room2(socket, player, room, magical, args);
-                });
-                rv = true;
-            } else {
-                rooms[room.realm+'/'+room.name] = room;
-                enter_room2(socket, player, room, magical, args);
-                rv = true;
+                }
             }
-        } catch(e) {
-            str = 'Problem loading '+ dest + ' ' + e;
-            debug(str);
-            rv = false;
-        }
+        );
     }
-    return rv;
+}
+
+function load_room3(realm, room_name, callback) {
+    fs.readFile('./realms/'+realm+'/rooms/'+room_name+'.js','utf8', function(err,data) {
+        if (err) {
+            str = '(LOAD_AND_ENTER): Problem loading '+realm+'/'+room_name+' ' + err;
+            debug(str);
+            callback(err, room);
+        }
+        room = eval(data);
+        callback(null, room);
+    });
+}
+
+function lneroom_callback(err, room) {
+    if (err) {
+        console.og(err);
+    } else {
+        rooms[room.realm+'/'+room.name] = room;
+    }
+}
+
+function load_room_npcs(room, callback) {
+    if (typeof room.start_npcs !== 'undefined') {
+        multi = obj_redis.multi();
+        room.npcs = [];
+        idnums = [];
+        for (var i in room.start_npcs) {
+            multi.incr('npc_id', function(err, data) {
+               idnums.push(data); 
+            });
+        }
+        multi.exec(function() {
+            index = 0;
+            for (var i in room.start_npcs) {
+                eval(fs.readFileSync('./realms/' + room.start_npcs[i] + '.js','utf8'));
+                npc.id = npc.name+'#'+idnums[index];
+                index++;
+                if (typeof room.npcs === 'undefined') {
+                    room.npcs = {};
+                }
+                // initialize events
+                if (typeof npc.events !== 'undefined') {
+                    npc.listener = new em();
+                    for (var event_name in npc.events) {
+                        npc.listener.on(event_name, function(event_name,npc_obj, player, args) {
+                            if (npc_obj.hp > 0) {
+                                npc_obj.events[event_name](npc_obj,player,args);
+                            }
+                        });
+                    }
+                }
+                room.npcs[npc.id] = npc;
+            }
+            callback(null, room);
+        });
+    } else {
+        callback(null, room);
+    }
+}
+
+function load_room_inv(room, callback) {
+    if (typeof room.start_inv !== 'undefined') {
+            multi = obj_redis.multi();
+            idnums = [];
+            for (var i in room.start_inv) {
+                multi.incr('obj_id', function(err, data) {
+                    idnums.push(data);
+                });
+            }
+            multi.exec(function() {
+                index = 0;
+                for (var i in room.start_inv) {
+                    tokens = room.start_inv[i].split('/',2);
+                    realm = tokens[0];
+                    obj_file = tokens[1];
+                    eval(fs.readFileSync('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8'));
+                    obj.id = obj.name+'#'+idnums[index];
+                    index++;
+                    if (typeof room.inv === 'undefined') {
+                        room.inv = [];
+                    }
+                    if (typeof obj.start_inv !== 'undefined') {
+                        multi2 = obj_redis.multi();
+                        idnums2 = [];
+                        for (let j = 0; j<obj.start_inv.length; j++) {
+                            multi2.incr('obj_id', function(err2, data2) {
+                                idnums2.push(data2);
+                            });
+                        }
+                        var temp= "";
+                        multi2.exec(function() {
+                            let index2 = 0;
+                            for (var j in obj.start_inv) {
+                                let tokens = room.start_inv[j].split('/',2);
+                                let realm = tokens[0];
+                                let obj_file = tokens[1];
+                                obj2_str = fs.readFileSync('./realms/'+realm+'/objs/'+obj_file+'.js', 'utf8');
+                                obj2_str = obj2_str.substring(6, obj2_str.length);
+                                obj2 = JSON.parse(obj2_str);
+                                temp2 = obj2.id = obj2.name+'#'+idnums2[index2];
+                                obj2.location = {'obj':obj.id};
+                                index2++;
+                                if (typeof obj.inv === 'undefined') {
+                                    obj.inv = [];
+                                }
+                                obj.inv.push(obj2);
+                                obj_list[obj2.id] = obj2;
+                            }
+                        });
+                    }
+                    room.inv.push(obj);
+                    obj.location = {'room':room.realm+'/'+room.name};
+                    obj_list[obj.id] = obj;
+                }
+                callback(null, room);
+            });
+    } else {
+        callback(null, room);
+    }
 }
 
 function load_room(room_locale) {
@@ -1578,6 +1672,7 @@ function show_room_inventory2(socket, room, player, hard_look) {
             for (var i in room.inv) {
                 key = room.inv[i].id;
                 if (typeof obj_list[key] === 'undefined') {
+                    console.log(key);
                     tokens = room.inv[i].origin.split('/', 2);
                     realm = tokens[0];
                     file = tokens[1];
