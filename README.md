@@ -1,5 +1,5 @@
 #jsmud
-
+*NOTE This is/was a learning exercies into Node.JS.  Promises do not exist and callback hell is abound*
 Written: 06SEP2016
 
 ##Installation:
